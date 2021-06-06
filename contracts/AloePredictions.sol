@@ -15,7 +15,7 @@ import "./structs/Bounds.sol";
 
 import "./interfaces/IAloePredictionEvents.sol";
 
-import "./AloeProposalLedger.sol";
+import "./AloePredictionsState.sol";
 
 uint256 constant TWO_144 = 2**144;
 uint256 constant TWO_80 = 2**80;
@@ -23,7 +23,7 @@ uint256 constant TWO_80 = 2**80;
 /// @title Aloe predictions market
 /// @author Aloe Capital LLC
 /// @notice TODO
-contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
+contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
     using SafeERC20 for IERC20;
 
     using UINT512Math for UINT512;
@@ -36,7 +36,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     IUniswapV3Pool public immutable UNI_POOL;
 
-    constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloeProposalLedger() {
+    constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloePredictionsState() {
         ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
 

@@ -8,7 +8,7 @@ import "./structs/Accumulators.sol";
 import "./structs/EpochSummary.sol";
 import "./structs/Proposal.sol";
 
-contract AloeProposalLedger {
+contract AloePredictionsState {
     using UINT512Math for UINT512;
 
     uint8 public constant NUM_PROPOSALS_TO_AGGREGATE = 100;

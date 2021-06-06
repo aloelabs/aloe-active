@@ -36,20 +36,6 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     IUniswapV3Pool public immutable UNI_POOL;
 
-    struct EpochSummary {
-        Bounds groundTruth;
-        Bounds aggregate;
-        Accumulators accumulators;
-    }
-
-    mapping(uint24 => EpochSummary) public summaries;
-
-    uint24 public epoch;
-
-    uint32 public epochStartTime;
-
-    bool public shouldInvertPrices;
-
     constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloeProposalLedger() {
         ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
@@ -66,17 +52,13 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         require(uint32(block.timestamp) > epochExpectedEndTime(), "Aloe: Too early");
         epochStartTime = uint32(block.timestamp);
 
-        EpochSummary storage summary = summaries[epoch];
-        summary.aggregate = aggregate();
-        summary.accumulators = accumulators;
-        summaries[epoch] = summary;
+        summaries[epoch].aggregate = aggregate();
 
         if (epoch != 0) {
             (summaries[epoch - 1].groundTruth, shouldInvertPrices) = fetchGroundTruth();
         }
 
         epoch++;
-        delete accumulators;
 
         // emit FetchedGroundTruth(bounds.lower, bounds.upper, shouldInvertPrices);
         emit Advanced(epoch, uint32(block.timestamp));
@@ -94,7 +76,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
     ) external returns (uint40 key) {
         require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
 
-        key = _submitProposal(stake, lower, upper, epoch);
+        key = _submitProposal(stake, lower, upper);
         _organizeProposals(key, stake);
 
         emit ProposalSubmitted(msg.sender, epoch, key, lower, upper, stake);
@@ -105,7 +87,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint176 lower,
         uint176 upper
     ) external {
-        _updateProposal(key, lower, upper, epoch);
+        _updateProposal(key, lower, upper);
         emit ProposalUpdated(msg.sender, epoch, key, lower, upper);
     }
 
@@ -196,6 +178,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
     }
 
     function aggregate() public view returns (Bounds memory bounds) {
+        Accumulators memory accumulators = summaries[epoch].accumulators;
+
         require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
 
         uint176 mean = uint176(accumulators.stake1stMomentRaw / accumulators.stakeTotal);

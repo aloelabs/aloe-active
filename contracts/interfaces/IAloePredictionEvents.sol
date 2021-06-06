@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 interface IAloePredictionEvents {
@@ -11,13 +11,7 @@ interface IAloePredictionEvents {
         uint80 stake
     );
 
-    event ProposalUpdated(
-        address indexed source,
-        uint24 indexed epoch,
-        uint40 key,
-        uint176 lower,
-        uint176 upper
-    );
+    event ProposalUpdated(address indexed source, uint24 indexed epoch, uint40 key, uint176 lower, uint176 upper);
 
     event FetchedGroundTruth(uint176 lower, uint176 upper, bool shouldUseReciprocalNextRound);
 

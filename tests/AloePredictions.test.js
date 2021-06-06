@@ -57,10 +57,12 @@ describe("Predictions Contract Test @hardhat", function () {
   });
 
   it("shouldn't aggregate proposals without stake", async () => {
-    await expect(predictions.submitProposal(40000 * Q32DENOM, 60000 * Q32DENOM, 0))
-      .to.eventually.be.rejected;
-    await expect(predictions.submitProposal(30000 * Q32DENOM, 50000 * Q32DENOM, 0))
-      .to.eventually.be.rejected;
+    await expect(
+      predictions.submitProposal(40000 * Q32DENOM, 60000 * Q32DENOM, 0)
+    ).to.eventually.be.rejected;
+    await expect(
+      predictions.submitProposal(30000 * Q32DENOM, 50000 * Q32DENOM, 0)
+    ).to.eventually.be.rejected;
     await expect(predictions.aggregate()).to.eventually.be.rejected;
   });
 
@@ -197,7 +199,7 @@ describe("Predictions Contract Test @hardhat", function () {
     const tx0 = await predictions.submitProposal(
       "0x40000000000000000000000000000000000000000000",
       "0x80000000000000000000000000000000000000000000",
-      "0x152D02C7E14AF6800000",
+      "0x152D02C7E14AF6800000"
     );
     expect(tx0.receipt.status).to.be.true;
   });
@@ -240,10 +242,26 @@ describe("Predictions Contract Test @hardhat", function () {
   it("should add many proposals", async () => {
     await web3.eth.hardhat.increaseTime(3600);
 
+    let gasUsedFirst100 = [];
+    let gasUsedAfter100 = [];
+
     for (let i = 0; i < 255; i++) {
-      const tx0 = await predictions.submitProposal(10000000000, 500000000000, Math.floor(100000 * Math.random()));
-      console.log(tx0.receipt.gasUsed);
+      const tx0 = await predictions.submitProposal(
+        10000000000,
+        500000000000,
+        Math.floor(100000 * Math.random())
+      );
+
+      if (i < 100) gasUsedFirst100.push(tx0.receipt.gasUsed);
+      else gasUsedAfter100.push(tx0.receipt.gasUsed);
     }
+
+    console.log(
+      gasUsedFirst100.reduce((a, b) => a + b, 0) / gasUsedFirst100.length
+    );
+    console.log(
+      gasUsedAfter100.reduce((a, b) => a + b, 0) / gasUsedAfter100.length
+    );
 
     const tx1 = await predictions.advance();
 

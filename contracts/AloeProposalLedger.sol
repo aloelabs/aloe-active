@@ -5,6 +5,7 @@ import "./libraries/Equations.sol";
 import "./libraries/UINT512.sol";
 
 import "./structs/Accumulators.sol";
+import "./structs/EpochSummary.sol";
 import "./structs/Proposal.sol";
 
 contract AloeProposalLedger {
@@ -12,17 +13,23 @@ contract AloeProposalLedger {
 
     uint8 public constant NUM_PROPOSALS_TO_AGGREGATE = 100;
 
+    mapping(uint24 => EpochSummary) public summaries;
+
     mapping(uint40 => Proposal) public proposals;
 
     uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
 
-    Accumulators public accumulators;
-
     uint40 public nextProposalKey = 0;
+
+    uint24 public epoch;
+
+    uint32 public epochStartTime;
+
+    bool public shouldInvertPrices;
 
     // Should run after _submitProposal, otherwise accumulators.proposalCount will be off by 1
     function _organizeProposals(uint40 newestProposalKey, uint80 newestProposalStake) internal {
-        uint40 insertionIdx = accumulators.proposalCount - 1;
+        uint40 insertionIdx = summaries[epoch].accumulators.proposalCount - 1;
 
         if (insertionIdx < NUM_PROPOSALS_TO_AGGREGATE) {
             highestStakeKeys[insertionIdx] = newestProposalKey;
@@ -63,13 +70,12 @@ contract AloeProposalLedger {
     function _submitProposal(
         uint80 stake,
         uint176 lower,
-        uint176 upper,
-        uint24 epoch
+        uint176 upper
     ) internal returns (uint40 key) {
         require(stake != 0, "Aloe: Need stake");
         require(lower < upper, "Aloe: Impossible bounds");
 
-        accumulators.proposalCount++;
+        summaries[epoch].accumulators.proposalCount++;
         accumulate(stake, lower, upper);
 
         key = nextProposalKey;
@@ -80,8 +86,7 @@ contract AloeProposalLedger {
     function _updateProposal(
         uint40 key,
         uint176 lower,
-        uint176 upper,
-        uint24 epoch
+        uint176 upper
     ) internal {
         require(lower < upper, "Aloe: Impossible bounds");
 
@@ -102,6 +107,8 @@ contract AloeProposalLedger {
         uint176 upper
     ) private {
         unchecked {
+            Accumulators storage accumulators = summaries[epoch].accumulators;
+
             accumulators.stakeTotal += stake;
             accumulators.stake1stMomentRaw += uint256(stake) * ((uint256(lower) + uint256(upper)) >> 1);
             accumulators.sumOfLowerBounds += lower;
@@ -123,6 +130,8 @@ contract AloeProposalLedger {
         uint176 upper
     ) private {
         unchecked {
+            Accumulators storage accumulators = summaries[epoch].accumulators;
+
             accumulators.stakeTotal -= stake;
             accumulators.stake1stMomentRaw -= uint256(stake) * ((uint256(lower) + uint256(upper)) >> 1);
             accumulators.sumOfLowerBounds -= lower;

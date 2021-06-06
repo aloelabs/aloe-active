@@ -98,16 +98,10 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
     function updateProposal(
         uint40 idx,
         uint176 lower,
-        uint176 upper,
-        uint80 stake
+        uint176 upper
     ) external {
-        _updateProposal(stake, lower, upper, epoch, idx);
-        emit ProposalUpdated(msg.sender, epoch, idx, lower, upper, stake);
-    }
-
-    function removeProposal(uint40 idx) external {
-        _removeProposal(epoch, idx);
-        emit ProposalRemoved(msg.sender, epoch, idx);
+        _updateProposal(idx, lower, upper, epoch);
+        emit ProposalUpdated(msg.sender, epoch, idx, lower, upper);
     }
 
     function claimReward(uint40 idx) external {

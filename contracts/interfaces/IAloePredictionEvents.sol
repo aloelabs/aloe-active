@@ -16,11 +16,8 @@ interface IAloePredictionEvents {
         uint24 indexed epoch,
         uint40 idx,
         uint176 lower,
-        uint176 upper,
-        uint80 stake
+        uint176 upper
     );
-
-    event ProposalRemoved(address indexed source, uint24 indexed epoch, uint40 idx);
 
     event FetchedGroundTruth(uint176 lower, uint176 upper, bool shouldUseReciprocalNextRound);
 

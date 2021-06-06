@@ -17,6 +17,9 @@ import "./interfaces/IAloePredictionEvents.sol";
 
 import "./AloeProposalLedger.sol";
 
+uint256 constant TWO_144 = 2**144;
+uint256 constant TWO_80 = 2**80;
+
 /// @title Aloe predictions market
 /// @author Aloe Capital LLC
 /// @notice TODO
@@ -25,17 +28,13 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     using UINT512Math for UINT512;
 
-    uint256 private constant TWO_144 = 2**144;
-
-    uint256 private constant TWO_80 = 2**80;
-
     uint256 public constant GROUND_TRUTH_STDDEV_SCALE = 2;
 
     uint32 public constant EPOCH_LENGTH_SECONDS = 3600;
 
     IERC20 public immutable ALOE;
 
-    address public immutable UNI_POOL;
+    IUniswapV3Pool public immutable UNI_POOL;
 
     struct EpochSummary {
         uint40 lastProposalIdx;
@@ -52,12 +51,12 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     bool public shouldInvertPrices;
 
-    constructor(IERC20 _ALOE, address _UNI_POOL) AloeProposalLedger() {
+    constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloeProposalLedger() {
         ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
 
         // Ensure we have an hour of data, assuming Uniswap interaction every 10 seconds
-        IUniswapV3Pool(_UNI_POOL).increaseObservationCardinalityNext(360);
+        _UNI_POOL.increaseObservationCardinalityNext(360);
     }
 
     function epochExpectedEndTime() public view returns (uint32) {
@@ -95,7 +94,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint80 stake
     ) external returns (uint40 idx) {
         require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
-        
+
         idx = _submitProposal(stake, lower, upper, epoch);
         emit ProposalSubmitted(msg.sender, epoch, idx, lower, upper, stake);
     }
@@ -206,7 +205,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint40 i;
 
         unchecked {
-            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) { // TODO Chainlink VRF to choose what we iterate over
+            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) {
+                // TODO Chainlink VRF to choose what we iterate over
                 Proposal storage proposal = proposals[i];
                 if (proposal.stake == 0) continue;
 
@@ -223,7 +223,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
                 }
             }
 
-            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) { // TODO Chainlink VRF to choose what we iterate over
+            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) {
+                // TODO Chainlink VRF to choose what we iterate over
                 Proposal storage proposal = proposals[i];
                 if (proposal.stake == 0) continue;
 
@@ -290,7 +291,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
      * @return shouldInvertPricesNext TODO
      */
     function fetchGroundTruth() public view returns (Bounds memory bounds, bool shouldInvertPricesNext) {
-        (int56[] memory tickCumulatives, ) = IUniswapV3Pool(UNI_POOL).observe(selectedOracleTimetable());
+        (int56[] memory tickCumulatives, ) = UNI_POOL.observe(selectedOracleTimetable());
         uint176 mean = TickMath.getSqrtRatioAtTick(int24((tickCumulatives[9] - tickCumulatives[0]) / 3240));
         shouldInvertPricesNext = mean < TWO_80;
 
@@ -317,7 +318,7 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         // MAD = stat / n, here n = 10
         // STDDEV = MAD * sqrt(2/pi) for a normal distribution
         // We want bounds to be +/- G*stddev, so we have an additional factor of G here
-        stat = uint176(uint256(stat) * GROUND_TRUTH_STDDEV_SCALE * 79788 / 1000000);
+        stat = uint176((uint256(stat) * GROUND_TRUTH_STDDEV_SCALE * 79788) / 1000000);
         // Compute mean +/- stat, but be careful not to overflow
         bounds.lower = mean > stat ? uint176(mean - stat) : 0;
         bounds.upper = uint184(mean) + stat > type(uint176).max ? type(uint176).max : uint176(mean + stat);

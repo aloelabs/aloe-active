@@ -37,7 +37,6 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
     IUniswapV3Pool public immutable UNI_POOL;
 
     struct EpochSummary {
-        uint40 lastProposalIdx;
         Bounds groundTruth;
         Bounds aggregate;
         Accumulators accumulators;
@@ -92,24 +91,26 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint176 lower,
         uint176 upper,
         uint80 stake
-    ) external returns (uint40 idx) {
+    ) external returns (uint40 key) {
         require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
 
-        idx = _submitProposal(stake, lower, upper, epoch);
-        emit ProposalSubmitted(msg.sender, epoch, idx, lower, upper, stake);
+        key = _submitProposal(stake, lower, upper, epoch);
+        _organizeProposals(key, stake);
+
+        emit ProposalSubmitted(msg.sender, epoch, key, lower, upper, stake);
     }
 
     function updateProposal(
-        uint40 idx,
+        uint40 key,
         uint176 lower,
         uint176 upper
     ) external {
-        _updateProposal(idx, lower, upper, epoch);
-        emit ProposalUpdated(msg.sender, epoch, idx, lower, upper);
+        _updateProposal(key, lower, upper, epoch);
+        emit ProposalUpdated(msg.sender, epoch, key, lower, upper);
     }
 
-    function claimReward(uint40 idx) external {
-        Proposal storage proposal = proposals[idx];
+    function claimReward(uint40 key) external {
+        Proposal storage proposal = proposals[key];
         require(proposal.stake != 0, "Aloe: Nothing to claim");
 
         EpochSummary storage summary = summaries[proposal.epoch];
@@ -118,8 +119,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
         if (summary.accumulators.proposalCount == 1) {
             require(ALOE.transfer(proposal.source, proposal.stake), "Aloe: failed to reward");
-            emit ClaimedReward(proposal.source, proposal.epoch, idx, proposal.stake);
-            delete proposals[idx];
+            emit ClaimedReward(proposal.source, proposal.epoch, key, proposal.stake);
+            delete proposals[key];
         }
 
         uint256 lowerError =
@@ -190,8 +191,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         }
 
         require(ALOE.transfer(proposal.source, reward), "Aloe: failed to reward");
-        emit ClaimedReward(proposal.source, proposal.epoch, idx, uint80(reward));
-        delete proposals[idx];
+        emit ClaimedReward(proposal.source, proposal.epoch, key, uint80(reward));
+        delete proposals[key];
     }
 
     function aggregate() public view returns (Bounds memory bounds) {
@@ -204,11 +205,12 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint176 stake2ndMomentNormUpper;
         uint40 i;
 
+        // It's more gas efficient to read from memory copy
+        uint40[NUM_PROPOSALS_TO_AGGREGATE] memory keysToAggregate = highestStakeKeys;
+
         unchecked {
-            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) {
-                // TODO Chainlink VRF to choose what we iterate over
-                Proposal storage proposal = proposals[i];
-                if (proposal.stake == 0) continue;
+            for (i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
+                Proposal storage proposal = proposals[keysToAggregate[i]];
 
                 if ((proposal.lower < mean) && (proposal.upper < mean)) {
                     // Proposal is entirely below the mean
@@ -223,10 +225,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
                 }
             }
 
-            for (i = nextProposalIdx - accumulators.proposalCount; i < nextProposalIdx; i++) {
-                // TODO Chainlink VRF to choose what we iterate over
-                Proposal storage proposal = proposals[i];
-                if (proposal.stake == 0) continue;
+            for (i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
+                Proposal storage proposal = proposals[keysToAggregate[i]];
 
                 if ((proposal.lower < mean) && (proposal.upper < mean)) {
                     // Proposal is entirely below the mean

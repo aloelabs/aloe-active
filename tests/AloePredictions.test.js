@@ -155,9 +155,9 @@ describe("Predictions Contract Test @hardhat", function () {
     const idx = tx0.logs[0].args.idx.toNumber();
 
     const balance0 = await aloe.balanceOf(accounts[0]);
-    const tx1 = await predictions.updateProposal(idx, 2500, 75000, 10);
+    const tx1 = await predictions.updateProposal(idx, 2500, 75000);
     const balance1 = await aloe.balanceOf(accounts[0]);
-    const tx2 = await predictions.updateProposal(idx, 2500, 60000, 5);
+    const tx2 = await predictions.updateProposal(idx, 2500, 60000);
     const balance2 = await aloe.balanceOf(accounts[0]);
 
     console.log(`Gas required to update proposal: ${tx1.receipt.gasUsed}`);
@@ -166,8 +166,8 @@ describe("Predictions Contract Test @hardhat", function () {
     expect(tx1.receipt.status).to.be.true;
     expect(tx2.receipt.status).to.be.true;
 
-    expect(balance1.addn(9).eq(balance0)).to.be.true;
-    expect(balance2.subn(5).eq(balance1)).to.be.true;
+    // expect(balance1.addn(9).eq(balance0)).to.be.true;
+    // expect(balance2.subn(5).eq(balance1)).to.be.true;
   });
 
   it("should aggregate properly after proposal update", async () => {
@@ -177,9 +177,9 @@ describe("Predictions Contract Test @hardhat", function () {
     console.log(`Gas required to add proposal: ${tx0.receipt.gasUsed}`);
 
     const aggregate0 = await predictions.aggregate();
-    const tx1 = await predictions.updateProposal(idx, 4, 8, 50);
+    const tx1 = await predictions.updateProposal(idx, 4, 8);
     const aggregate1 = await predictions.aggregate();
-    const tx2 = await predictions.updateProposal(idx, 500000, 1000000, 100);
+    const tx2 = await predictions.updateProposal(idx, 500000, 1000000);
     const aggregate2 = await predictions.aggregate();
 
     expect(tx0.receipt.status).to.be.true;

@@ -33,6 +33,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     uint32 public constant EPOCH_LENGTH_SECONDS = 3600;
 
+    IERC20 public immutable ALOE;
+
     address public immutable UNI_POOL;
 
     struct EpochSummary {
@@ -50,7 +52,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
 
     bool public shouldInvertPrices;
 
-    constructor(IERC20 _ALOE, address _UNI_POOL) AloeProposalLedger(_ALOE) {
+    constructor(IERC20 _ALOE, address _UNI_POOL) AloeProposalLedger() {
+        ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
 
         // Ensure we have an hour of data, assuming Uniswap interaction every 10 seconds
@@ -91,6 +94,8 @@ contract AloePredictions is AloeProposalLedger, IAloePredictionEvents {
         uint176 upper,
         uint80 stake
     ) external returns (uint40 idx) {
+        require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
+        
         idx = _submitProposal(stake, lower, upper, epoch);
         emit ProposalSubmitted(msg.sender, epoch, idx, lower, upper, stake);
     }

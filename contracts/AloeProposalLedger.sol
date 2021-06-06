@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
 import "./libraries/Equations.sol";
 import "./libraries/UINT512.sol";
 
@@ -11,11 +8,7 @@ import "./structs/Accumulators.sol";
 import "./structs/Proposal.sol";
 
 contract AloeProposalLedger {
-    using SafeERC20 for IERC20;
-
     using UINT512Math for UINT512;
-
-    IERC20 public immutable ALOE;
 
     mapping(uint40 => Proposal) public proposals;
 
@@ -23,9 +16,7 @@ contract AloeProposalLedger {
 
     uint40 public nextProposalIdx = 0;
 
-    constructor(IERC20 _ALOE) {
-        ALOE = _ALOE;
-    }
+    constructor() {}
 
     /**
      * `lower` and `upper` are Q128.48, uint176
@@ -48,8 +39,6 @@ contract AloeProposalLedger {
     ) internal returns (uint40 idx) {
         require(stake != 0, "Aloe: Need stake");
         require(lower < upper, "Aloe: Impossible bounds");
-
-        require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
 
         accumulators.proposalCount++;
         accumulate(stake, lower, upper);

@@ -10,13 +10,15 @@ import "./structs/Proposal.sol";
 contract AloeProposalLedger {
     using UINT512Math for UINT512;
 
+    uint8 public constant NUM_PROPOSALS_TO_AGGREGATE = 100;
+
     mapping(uint40 => Proposal) public proposals;
+
+    uint40[NUM_PROPOSALS_TO_AGGREGATE] public highest_stake_idxs;
 
     Accumulators public accumulators;
 
     uint40 public nextProposalIdx = 0;
-
-    constructor() {}
 
     /**
      * `lower` and `upper` are Q128.48, uint176

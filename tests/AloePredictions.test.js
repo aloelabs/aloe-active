@@ -152,7 +152,7 @@ describe("Predictions Contract Test @hardhat", function () {
 
   it("should update proposals", async () => {
     const tx0 = await predictions.submitProposal(2500, 75000, 1);
-    const idx = tx0.logs[0].args.idx.toNumber();
+    const idx = tx0.logs[0].args.key.toNumber();
 
     const balance0 = await aloe.balanceOf(accounts[0]);
     const tx1 = await predictions.updateProposal(idx, 2500, 75000);
@@ -172,7 +172,7 @@ describe("Predictions Contract Test @hardhat", function () {
 
   it("should aggregate properly after proposal update", async () => {
     const tx0 = await predictions.submitProposal(500000, 1000000, 100);
-    const idx = tx0.logs[0].args.idx.toNumber();
+    const idx = tx0.logs[0].args.key.toNumber();
 
     console.log(`Gas required to add proposal: ${tx0.receipt.gasUsed}`);
 
@@ -235,5 +235,18 @@ describe("Predictions Contract Test @hardhat", function () {
       console.log(`Gas required to claim reward: ${txi.receipt.gasUsed}`);
       console.log(`ALOE earned: ${txi.logs[0].args.amount.toString(10)}\n`);
     }
+  });
+
+  it("should add many proposals", async () => {
+    await web3.eth.hardhat.increaseTime(3600);
+
+    for (let i = 0; i < 255; i++) {
+      const tx0 = await predictions.submitProposal(10000000000, 500000000000, Math.floor(100000 * Math.random()));
+      console.log(tx0.receipt.gasUsed);
+    }
+
+    const tx1 = await predictions.advance();
+
+    console.log(tx1.receipt.gasUsed);
   });
 });

@@ -14,11 +14,38 @@ contract AloeProposalLedger {
 
     mapping(uint40 => Proposal) public proposals;
 
-    uint40[NUM_PROPOSALS_TO_AGGREGATE] public highest_stake_idxs;
+    uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
 
     Accumulators public accumulators;
 
-    uint40 public nextProposalIdx = 0;
+    uint40 public nextProposalKey = 0;
+
+    // Should run after _submitProposal, otherwise accumulators.proposalCount will be off by 1
+    function _organizeProposals(uint40 newestProposalKey, uint80 newestProposalStake) internal {
+        uint40 insertionIdx = accumulators.proposalCount - 1;
+
+        if (insertionIdx < NUM_PROPOSALS_TO_AGGREGATE) {
+            highestStakeKeys[insertionIdx] = newestProposalKey;
+            return;
+        }
+
+        // Start off by assuming the first key in the array corresponds to min stake
+        insertionIdx = 0;
+        uint80 stakeMin = proposals[highestStakeKeys[0]].stake;
+        uint80 stake;
+        // Now iterate through rest of keys and update [insertionIdx, stakeMin] as needed
+        for (uint8 i = 1; i < NUM_PROPOSALS_TO_AGGREGATE; i++) {
+            stake = proposals[highestStakeKeys[i]].stake;
+            if (stake < stakeMin) {
+                insertionIdx = i;
+                stakeMin = stake;
+            }
+        }
+
+        // `>=` (instead of `>`) prefers newer proposals to old ones. This is what we want,
+        // since newer proposals will have more market data on which to base bounds.
+        if (newestProposalStake >= stakeMin) highestStakeKeys[insertionIdx] = newestProposalKey;
+    }
 
     /**
      * `lower` and `upper` are Q128.48, uint176
@@ -38,27 +65,27 @@ contract AloeProposalLedger {
         uint176 lower,
         uint176 upper,
         uint24 epoch
-    ) internal returns (uint40 idx) {
+    ) internal returns (uint40 key) {
         require(stake != 0, "Aloe: Need stake");
         require(lower < upper, "Aloe: Impossible bounds");
 
         accumulators.proposalCount++;
         accumulate(stake, lower, upper);
 
-        idx = nextProposalIdx;
-        proposals[idx] = Proposal(msg.sender, epoch, lower, upper, stake);
-        nextProposalIdx++;
+        key = nextProposalKey;
+        proposals[key] = Proposal(msg.sender, epoch, lower, upper, stake);
+        nextProposalKey++;
     }
 
     function _updateProposal(
-        uint40 idx,
+        uint40 key,
         uint176 lower,
         uint176 upper,
         uint24 epoch
     ) internal {
         require(lower < upper, "Aloe: Impossible bounds");
 
-        Proposal storage proposal = proposals[idx];
+        Proposal storage proposal = proposals[key];
         require(proposal.source == msg.sender, "Aloe: Not yours");
         require(proposal.epoch == epoch, "Aloe: Not fluid");
 

@@ -5,7 +5,7 @@ interface IAloePredictionEvents {
     event ProposalSubmitted(
         address indexed source,
         uint24 indexed epoch,
-        uint40 idx,
+        uint40 key,
         uint176 lower,
         uint176 upper,
         uint80 stake
@@ -14,7 +14,7 @@ interface IAloePredictionEvents {
     event ProposalUpdated(
         address indexed source,
         uint24 indexed epoch,
-        uint40 idx,
+        uint40 key,
         uint176 lower,
         uint176 upper
     );
@@ -23,5 +23,5 @@ interface IAloePredictionEvents {
 
     event Advanced(uint24 epoch, uint32 epochStartTime);
 
-    event ClaimedReward(address indexed recipient, uint24 indexed epoch, uint40 idx, uint80 amount);
+    event ClaimedReward(address indexed recipient, uint24 indexed epoch, uint40 key, uint80 amount);
 }

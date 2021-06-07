@@ -11,20 +11,28 @@ import "./structs/Proposal.sol";
 contract AloePredictionsState {
     using UINT512Math for UINT512;
 
+    /// @dev The maximum number of proposals that should be aggregated
     uint8 public constant NUM_PROPOSALS_TO_AGGREGATE = 100;
 
+    /// @dev TODO
     mapping(uint24 => EpochSummary) public summaries;
 
+    /// @dev TODO
     mapping(uint40 => Proposal) public proposals;
 
+    /// @dev TODO
     uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
 
+    /// @dev TODO
     uint40 public nextProposalKey = 0;
 
+    /// @dev TODO
     uint24 public epoch;
 
+    /// @dev TODO
     uint32 public epochStartTime;
 
+    /// @dev TODO
     bool public shouldInvertPrices;
 
     // Should run after _submitProposal, otherwise accumulators.proposalCount will be off by 1

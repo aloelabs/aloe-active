@@ -13,7 +13,7 @@ interface IAloePredictionEvents {
 
     event ProposalUpdated(address indexed source, uint24 indexed epoch, uint40 key, uint176 lower, uint176 upper);
 
-    event FetchedGroundTruth(uint176 lower, uint176 upper, bool shouldUseReciprocalNextRound);
+    event FetchedGroundTruth(uint176 lower, uint176 upper, bool didInvertPrices);
 
     event Advanced(uint24 epoch, uint32 epochStartTime);
 

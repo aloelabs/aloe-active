@@ -14,28 +14,31 @@ contract AloePredictionsState {
     /// @dev The maximum number of proposals that should be aggregated
     uint8 public constant NUM_PROPOSALS_TO_AGGREGATE = 100;
 
-    /// @dev TODO
+    /// @dev A mapping containing a summary of every epoch
     mapping(uint24 => EpochSummary) public summaries;
 
-    /// @dev TODO
+    /// @dev A mapping containing every proposal
     mapping(uint40 => Proposal) public proposals;
 
-    /// @dev TODO
+    /// @dev An array containing keys of the highest-stake proposals in the current epoch
     uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
 
-    /// @dev TODO
+    /// @dev The unique ID that will be assigned to the next submitted proposal
     uint40 public nextProposalKey = 0;
 
-    /// @dev TODO
+    /// @dev The current epoch. May increase up to once per hour. Never decreases
     uint24 public epoch;
 
-    /// @dev TODO
+    /// @dev The time at which the current epoch started
     uint32 public epochStartTime;
 
-    /// @dev TODO
+    /// @dev Whether new proposals should be submitted with inverted prices
     bool public shouldInvertPrices;
 
-    // Should run after _submitProposal, otherwise accumulators.proposalCount will be off by 1
+    /// @dev Whether proposals in `epoch - 1` were submitted with inverted prices
+    bool public didInvertPrices;
+
+    /// @dev Should run after `_submitProposal`, otherwise `accumulators.proposalCount` will be off by 1
     function _organizeProposals(uint40 newestProposalKey, uint80 newestProposalStake) internal {
         uint40 insertionIdx = summaries[epoch].accumulators.proposalCount - 1;
 
@@ -62,19 +65,6 @@ contract AloePredictionsState {
         if (newestProposalStake >= stakeMin) highestStakeKeys[insertionIdx] = newestProposalKey;
     }
 
-    /**
-     * `lower` and `upper` are Q128.48, uint176
-     *
-     * This means that (after square-rooting), they produce sqrtPriceX96 values in range
-     *      [2 ** +72, 2 ** +160]
-     * This corresponds to floating point range
-     *      [2 ** -24, 2 ** +64]
-     *
-     * When scoring a round, this contract will check if the TWAP of sqrtPriceX96 < 2 ** +80.
-     * If it is, then proposals' lower & upper bounds in the _next_ round should be submitted
-     * as the price of token1 : token0 rather than token0 : token1.
-     *
-     */
     function _submitProposal(
         uint80 stake,
         uint176 lower,

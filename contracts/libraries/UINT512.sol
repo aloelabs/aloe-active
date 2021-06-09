@@ -70,6 +70,7 @@ library UINT512Math {
         }
     }
 
+    /// @dev Multiplies self by single uint256, s. Assumes result fits in uint512
     function muls(UINT512 memory self, uint256 s) internal pure returns (uint256, uint256) {
         unchecked {
             self.MS *= s;

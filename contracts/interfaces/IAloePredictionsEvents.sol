@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IAloePredictionEvents {
+interface IAloePredictionsEvents {
     event ProposalSubmitted(
         address indexed source,
         uint24 indexed epoch,

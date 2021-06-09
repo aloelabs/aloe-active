@@ -36,12 +36,14 @@ library Equations {
     }
 
     /**
-     * a: either sumOfSquaredBounds or sumOfSquaredBoundsWeighted
-     * b: either sumOfLowerBounds or sumOfLowerBoundsWeighted
-     * c: either sumOfUpperBounds or sumOfUpperBoundsWeighted
-     * d: either proposalCount or stakeTotal
-     * lowerTrue: groundTruth.lower
-     * upperTrue: groundTruth.upper
+     * @notice A complicated equation used when computing rewards.
+     * @param a One of `sumOfSquaredBounds` | `sumOfSquaredBoundsWeighted`
+     * @param b One of `sumOfLowerBounds`   | `sumOfLowerBoundsWeighted`
+     * @param c: One of `sumOfUpperBounds`  | `sumOfUpperBoundsWeighted`
+     * @param d: One of `proposalCount`     | `stakeTotal`
+     * @param lowerTrue: `groundTruth.lower`
+     * @param upperTrue: `groundTruth.upper`
+     * @return Output of Equation 1 from the whitepaper
      */
     function eqn1(
         UINT512 memory a,

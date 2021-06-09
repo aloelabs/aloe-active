@@ -11,9 +11,7 @@ import "./libraries/FullMath.sol";
 import "./libraries/TickMath.sol";
 import "./libraries/UINT512.sol";
 
-import "./structs/Bounds.sol";
-
-import "./interfaces/IAloePredictionEvents.sol";
+import "./interfaces/IAloePredictions.sol";
 
 import "./AloePredictionsState.sol";
 
@@ -53,7 +51,7 @@ uint256 constant TWO_80 = 2**80;
 
 /// @title Aloe predictions market
 /// @author Aloe Capital LLC
-contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
+contract AloePredictions is AloePredictionsState, IAloePredictions {
     using SafeERC20 for IERC20;
     using UINT512Math for UINT512;
 
@@ -87,20 +85,19 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         _UNI_POOL.increaseObservationCardinalityNext(360);
     }
 
-    /// @notice The most recent crowdsourced prediction
-    /// @return (prediction bounds, whether bounds prices are inverted)
-    function current() external view returns (Bounds memory, bool) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function current() external view override returns (Bounds memory, bool) {
         require(epoch != 0, "Aloe: No data yet");
         return (summaries[epoch - 1].aggregate, didInvertPrices);
     }
 
-    /// @notice The earliest time at which the epoch can end
-    function epochExpectedEndTime() public view returns (uint32) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function epochExpectedEndTime() public view override returns (uint32) {
         unchecked {return epochStartTime + EPOCH_LENGTH_SECONDS;}
     }
 
-    /// @notice Advances the epoch no more than once per hour
-    function advance() external lock {
+    /// @inheritdoc IAloePredictionsActions
+    function advance() external override lock {
         require(uint32(block.timestamp) > epochExpectedEndTime(), "Aloe: Too early");
         epochStartTime = uint32(block.timestamp);
 
@@ -119,21 +116,12 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         emit Advanced(epoch, uint32(block.timestamp));
     }
 
-    /**
-     * @notice Allows users to submit proposals in `epoch`. These proposals specify aggregate position
-     * in `epoch + 1` and adjusted stakes become claimable in `epoch + 2`
-     * @param lower The Q128.48 price at the lower bound, unless `shouldInvertPrices`, in which case
-     * this should be `1 / (priceAtUpperBound * 2 ** 16)`
-     * @param upper The Q128.48 price at the upper bound, unless `shouldInvertPrices`, in which case
-     * this should be `1 / (priceAtLowerBound * 2 ** 16)`
-     * @param stake The amount of ALOE to stake on this proposal. Once submitted, you can't unsubmit!
-     * @return key The unique ID of this proposal, used to update bounds and claim reward
-     */
+    /// @inheritdoc IAloePredictionsActions
     function submitProposal(
         uint176 lower,
         uint176 upper,
         uint80 stake
-    ) external lock returns (uint40 key) {
+    ) external override lock returns (uint40 key) {
         require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
 
         key = _submitProposal(stake, lower, upper);
@@ -142,32 +130,18 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         emit ProposalSubmitted(msg.sender, epoch, key, lower, upper, stake);
     }
 
-    /**
-     * @notice Allows users to update bounds of a proposal they submitted previously. This only
-     * works if the epoch hasn't increased since submission
-     * @param key The key of the proposal that should be updated
-     * @param lower The Q128.48 price at the lower bound, unless `shouldInvertPrices`, in which case
-     * this should be `1 / (priceAtUpperBound * 2 ** 16)`
-     * @param upper The Q128.48 price at the upper bound, unless `shouldInvertPrices`, in which case
-     * this should be `1 / (priceAtLowerBound * 2 ** 16)`
-     */
+    /// @inheritdoc IAloePredictionsActions
     function updateProposal(
         uint40 key,
         uint176 lower,
         uint176 upper
-    ) external {
+    ) external override {
         _updateProposal(key, lower, upper);
         emit ProposalUpdated(msg.sender, epoch, key, lower, upper);
     }
 
-    /**
-     * @notice Allows users to reclaim ALOE that they staked in previous epochs, as long as
-     * the epoch has ground truth information
-     * @dev ALOE is sent to `proposal.source` not `msg.sender`, so anyone can trigger a claim
-     * for anyone else
-     * @param key The key of the proposal that should be judged and rewarded
-     */
-    function claimReward(uint40 key) external lock {
+    /// @inheritdoc IAloePredictionsActions
+    function claimReward(uint40 key) external override lock {
         Proposal storage proposal = proposals[key];
         require(proposal.stake != 0, "Aloe: Nothing to claim");
 
@@ -253,12 +227,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         delete proposals[key];
     }
 
-    /**
-     * @notice Aggregates proposals in the current `epoch`. Only the top `NUM_PROPOSALS_TO_AGGREGATE`, ordered by
-     * stake, will be considered (though others can still receive rewards).
-     * @return bounds The crowdsourced price range that may characterize trading activity over the next hour
-     */
-    function aggregate() public view returns (Bounds memory bounds) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function aggregate() public view override returns (Bounds memory bounds) {
         Accumulators memory accumulators = summaries[epoch].accumulators;
 
         require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
@@ -350,13 +320,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         bounds.upper = mean + stake2ndMomentNormUpper;
     }
 
-    /**
-     * @notice Fetches Uniswap prices over 10 discrete intervals in the past hour. Computes mean and standard
-     * deviation of these samples, and returns "ground truth" bounds that should enclose ~95% of trading activity
-     * @return bounds The "ground truth" price range that will be used when computing rewards
-     * @return shouldInvertPricesNext Whether proposals in the next epoch should be submitted with inverted bounds
-     */
-    function fetchGroundTruth() public view returns (Bounds memory bounds, bool shouldInvertPricesNext) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function fetchGroundTruth() public view override returns (Bounds memory bounds, bool shouldInvertPricesNext) {
         (int56[] memory tickCumulatives, ) = UNI_POOL.observe(selectedOracleTimetable());
         uint176 mean = TickMath.getSqrtRatioAtTick(int24((tickCumulatives[9] - tickCumulatives[0]) / 3240));
         shouldInvertPricesNext = mean < TWO_80;
@@ -390,12 +355,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         bounds.upper = uint184(mean) + stat > type(uint176).max ? type(uint176).max : uint176(mean + stat);
     }
 
-    /**
-     * @notice Builds a memory array that can be passed to Uniswap V3's `observe` function to specify
-     * intervals over which mean prices should be fetched
-     * @return secondsAgos From how long ago each cumulative tick and liquidity value should be returned
-     */
-    function selectedOracleTimetable() public pure returns (uint32[] memory secondsAgos) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function selectedOracleTimetable() public pure override returns (uint32[] memory secondsAgos) {
         secondsAgos = new uint32[](10);
         secondsAgos[0] = 3420;
         secondsAgos[1] = 3060;

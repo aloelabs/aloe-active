@@ -125,7 +125,7 @@ library FullMath {
         }
     }
 
-    /// https://medium.com/wicketh/mathemagic-full-multiply-27650fec525d
+    /// @dev https://medium.com/wicketh/mathemagic-full-multiply-27650fec525d
     function mul512(uint256 a, uint256 b) internal pure returns (uint256 r0, uint256 r1) {
         assembly {
             let mm := mulmod(a, b, not(0))
@@ -134,6 +134,7 @@ library FullMath {
         }
     }
 
+    /// @dev Like `mul512`, but multiply a number by itself
     function square512(uint256 a) internal pure returns (uint256 r0, uint256 r1) {
         assembly {
             let mm := mulmod(a, a, not(0))
@@ -142,7 +143,7 @@ library FullMath {
         }
     }
 
-    // https://github.com/hifi-finance/prb-math/blob/main/contracts/PRBMathCommon.sol
+    /// @dev https://github.com/hifi-finance/prb-math/blob/main/contracts/PRBMathCommon.sol
     function log2floor(uint256 x) internal pure returns (uint256 msb) {
         unchecked {
             if (x >= 2**128) {
@@ -180,7 +181,7 @@ library FullMath {
         }
     }
 
-    // https://graphics.stanford.edu/~seander/bithacks.html#IntegerLogDeBruijn
+    /// @dev https://graphics.stanford.edu/~seander/bithacks.html#IntegerLogDeBruijn
     function log2ceil(uint256 x) internal pure returns (uint256 y) {
         assembly {
             let arg := x

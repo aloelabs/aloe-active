@@ -69,6 +69,16 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
     /// @dev The Uniswap pair for which predictions should be made
     IUniswapV3Pool public immutable UNI_POOL;
 
+    /// @dev For reentrancy check
+    bool private locked;
+
+    modifier lock() {
+        require(!locked, "Aloe: Locked");
+        locked = true;
+        _;
+        locked = false;
+    }
+
     constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloePredictionsState() {
         ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
@@ -90,7 +100,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
     }
 
     /// @notice Advances the epoch no more than once per hour
-    function advance() external {
+    function advance() external lock {
         require(uint32(block.timestamp) > epochExpectedEndTime(), "Aloe: Too early");
         epochStartTime = uint32(block.timestamp);
 
@@ -123,7 +133,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
         uint176 lower,
         uint176 upper,
         uint80 stake
-    ) external returns (uint40 key) {
+    ) external lock returns (uint40 key) {
         require(ALOE.transferFrom(msg.sender, address(this), stake), "Aloe: Provide ALOE");
 
         key = _submitProposal(stake, lower, upper);
@@ -157,7 +167,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictionEvents {
      * for anyone else
      * @param key The key of the proposal that should be judged and rewarded
      */
-    function claimReward(uint40 key) external {
+    function claimReward(uint40 key) external lock {
         Proposal storage proposal = proposals[key];
         require(proposal.stake != 0, "Aloe: Nothing to claim");
 

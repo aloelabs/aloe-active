@@ -148,8 +148,8 @@ describe("Predictions Contract Test @hardhat", function () {
 
     console.log(`Gas required to advance: ${tx0.receipt.gasUsed}`);
 
-    expect(current.lower).to.equal("10237094213326");
-    expect(current.upper).to.equal("69454514383031");
+    expect(current['0'].lower).to.equal("10237094213326");
+    expect(current['0'].upper).to.equal("69454514383031");
   });
 
   it("should update proposals", async () => {

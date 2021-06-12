@@ -153,6 +153,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
             require(ALOE.transfer(proposal.source, proposal.stake), "Aloe: failed to reward");
             emit ClaimedReward(proposal.source, proposal.epoch, key, proposal.stake);
             delete proposals[key];
+            return;
         }
 
         uint256 lowerError =

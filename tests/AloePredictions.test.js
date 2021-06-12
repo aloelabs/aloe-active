@@ -148,8 +148,8 @@ describe("Predictions Contract Test @hardhat", function () {
 
     console.log(`Gas required to advance: ${tx0.receipt.gasUsed}`);
 
-    expect(current['0'].lower).to.equal("10237094213326");
-    expect(current['0'].upper).to.equal("69454514383031");
+    expect(current["0"].lower).to.equal("10237094213326");
+    expect(current["0"].upper).to.equal("69454514383031");
   });
 
   it("should update proposals", async () => {
@@ -266,5 +266,23 @@ describe("Predictions Contract Test @hardhat", function () {
     const tx1 = await predictions.advance();
 
     console.log(tx1.receipt.gasUsed);
+  });
+
+  it("should claim single proposal", async () => {
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx0 = await predictions.submitProposal(
+      10000000000,
+      500000000000,
+      Math.floor(100000 * Math.random())
+    );
+    const tx1 = await predictions.advance();
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx2 = await predictions.submitProposal(
+      10000000000,
+      500000000000,
+      Math.floor(100000 * Math.random())
+    );
+    const tx3 = await predictions.advance();
+    const tx4 = await predictions.claimReward(tx0.logs[0].args.key);
   });
 });

@@ -165,8 +165,14 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
                 : summary.groundTruth.upper - proposal.upper;
         uint256 stakeTotal = summary.accumulators.stakeTotal;
 
-        UINT512 memory sumOfSquaredErrors =
-            Equations.eqn1(
+        UINT512 memory temp;
+        UINT512 memory denom;
+
+        // Consolidate accumulators into variables better-suited for
+        // reward computation
+        if (summary.accumulators.stake1stMomentRaw != 0) {
+            // Reassign sumOfSquaredBounds to sumOfSquaredErrors
+            summary.accumulators.sumOfSquaredBounds = Equations.eqn1(
                 summary.accumulators.sumOfSquaredBounds,
                 summary.accumulators.sumOfLowerBounds,
                 summary.accumulators.sumOfUpperBounds,
@@ -174,8 +180,13 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
                 summary.groundTruth.lower,
                 summary.groundTruth.upper
             );
-        UINT512 memory sumOfSquaredErrorsWeighted =
-            Equations.eqn1(
+
+            // Compute reward denominator
+            denom = summary.accumulators.sumOfSquaredBounds;
+            // --> Scale this initial term by total stake
+            (denom.LS, denom.MS) = denom.muls(stakeTotal);
+            // --> Subtract sum of all weighted squared errors
+            temp = Equations.eqn1(
                 summary.accumulators.sumOfSquaredBoundsWeighted,
                 summary.accumulators.sumOfLowerBoundsWeighted,
                 summary.accumulators.sumOfUpperBoundsWeighted,
@@ -183,11 +194,23 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
                 summary.groundTruth.lower,
                 summary.groundTruth.upper
             );
+            (denom.LS, denom.MS) = denom.sub(temp.LS, temp.MS);
 
-        UINT512 memory temp;
+            // Reassign sumOfSquaredBoundsWeighted to denom
+            summary.accumulators.sumOfSquaredBoundsWeighted = denom;
+
+            delete summary.accumulators.stake1stMomentRaw;
+            delete summary.accumulators.sumOfLowerBounds;
+            delete summary.accumulators.sumOfLowerBoundsWeighted;
+            delete summary.accumulators.sumOfUpperBounds;
+            delete summary.accumulators.sumOfUpperBoundsWeighted;
+        } else {
+            denom = summary.accumulators.sumOfSquaredBoundsWeighted;
+        }
 
         // Compute reward numerator
-        UINT512 memory numer = UINT512(sumOfSquaredErrors.LS, sumOfSquaredErrors.MS);
+        // --> Start with sum of all squared errors
+        UINT512 memory numer = summary.accumulators.sumOfSquaredBounds;
         // --> Subtract current proposal's squared error
         (temp.LS, temp.MS) = FullMath.square512(lowerError);
         (numer.LS, numer.MS) = numer.sub(temp.LS, temp.MS);
@@ -195,13 +218,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         (numer.LS, numer.MS) = numer.sub(temp.LS, temp.MS);
         // --> Weight entire numerator by proposal's stake
         (numer.LS, numer.MS) = numer.muls(proposal.stake);
-
-        // Compute reward denominator
-        UINT512 memory denom = UINT512(sumOfSquaredErrors.LS, sumOfSquaredErrors.MS);
-        // --> Scale this initial term by total stake
-        (denom.LS, denom.MS) = denom.muls(stakeTotal);
-        // --> Subtract sum of all weighted squared errors
-        (denom.LS, denom.MS) = denom.sub(sumOfSquaredErrorsWeighted.LS, sumOfSquaredErrorsWeighted.MS);
 
         // Now our 4 key numbers are available: numerLS, numerMS, denomLS, denomMS
         uint256 reward;

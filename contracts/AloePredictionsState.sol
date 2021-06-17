@@ -99,15 +99,6 @@ contract AloePredictionsState {
         proposal.upper = upper;
     }
 
-    function _archiveProposal(
-        Proposal storage proposal,
-        uint80 reward
-    ) internal {
-        delete proposal.lower;
-        delete proposal.upper;
-        proposal.stake = reward;
-    }
-
     function accumulate(
         uint80 stake,
         uint176 lower,
@@ -152,5 +143,47 @@ contract AloePredictionsState {
             accumulators.sumOfSquaredBounds.isub(LS0, MS0);
             accumulators.sumOfSquaredBoundsWeighted.isub(LS1, MS1);
         }
+    }
+
+    /// @dev Consolidate accumulators into variables better-suited for reward math
+    function _consolidateAccumulators(uint24 inEpoch) internal {
+        EpochSummary storage summary = summaries[inEpoch];
+        require(summary.groundTruth.upper != 0, "Aloe: Need ground truth");
+
+        uint256 stakeTotal = summary.accumulators.stakeTotal;
+
+        // Reassign sumOfSquaredBounds to sumOfSquaredErrors
+        summary.accumulators.sumOfSquaredBounds = Equations.eqn1(
+            summary.accumulators.sumOfSquaredBounds,
+            summary.accumulators.sumOfLowerBounds,
+            summary.accumulators.sumOfUpperBounds,
+            summary.accumulators.proposalCount,
+            summary.groundTruth.lower,
+            summary.groundTruth.upper
+        );
+
+        // Compute reward denominator
+        UINT512 memory denom = summary.accumulators.sumOfSquaredBounds;
+        // --> Scale this initial term by total stake
+        (denom.LS, denom.MS) = denom.muls(stakeTotal);
+        // --> Subtract sum of all weighted squared errors
+        UINT512 memory temp = Equations.eqn1(
+            summary.accumulators.sumOfSquaredBoundsWeighted,
+            summary.accumulators.sumOfLowerBoundsWeighted,
+            summary.accumulators.sumOfUpperBoundsWeighted,
+            stakeTotal,
+            summary.groundTruth.lower,
+            summary.groundTruth.upper
+        );
+        (denom.LS, denom.MS) = denom.sub(temp.LS, temp.MS);
+
+        // Reassign sumOfSquaredBoundsWeighted to denom
+        summary.accumulators.sumOfSquaredBoundsWeighted = denom;
+
+        delete summary.accumulators.stake1stMomentRaw;
+        delete summary.accumulators.sumOfLowerBounds;
+        delete summary.accumulators.sumOfLowerBoundsWeighted;
+        delete summary.accumulators.sumOfUpperBounds;
+        delete summary.accumulators.sumOfUpperBoundsWeighted;
     }
 }

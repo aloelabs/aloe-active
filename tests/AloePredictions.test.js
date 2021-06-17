@@ -213,7 +213,7 @@ describe("Predictions Contract Test @hardhat", function () {
     console.log(`Gas required to advance: ${tx0.receipt.gasUsed}`);
 
     for (let i = 0; i < 5; i += 1) {
-      const txi = await predictions.claimReward(i);
+      const txi = await predictions.claimReward(i, []);
       expect(txi.receipt.status).to.be.true;
 
       console.log(`Gas required to claim reward: ${txi.receipt.gasUsed}`);
@@ -231,7 +231,7 @@ describe("Predictions Contract Test @hardhat", function () {
     expect(tx1.receipt.status).to.be.true;
 
     for (let i = 5; i < 8; i += 1) {
-      const txi = await predictions.claimReward(i);
+      const txi = await predictions.claimReward(i, []);
       expect(txi.receipt.status).to.be.true;
 
       console.log(`Gas required to claim reward: ${txi.receipt.gasUsed}`);
@@ -283,6 +283,6 @@ describe("Predictions Contract Test @hardhat", function () {
       Math.floor(100000 * Math.random())
     );
     const tx3 = await predictions.advance();
-    const tx4 = await predictions.claimReward(tx0.logs[0].args.key);
+    const tx4 = await predictions.claimReward(tx0.logs[0].args.key, []);
   });
 });

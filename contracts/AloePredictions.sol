@@ -110,6 +110,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
             summaries[epoch - 1].groundTruth = groundTruth;
             didInvertPrices = shouldInvertPrices;
             shouldInvertPrices = shouldInvertPricesNext;
+
+            _consolidateAccumulators(epoch - 1);
         }
 
         epoch++;
@@ -141,7 +143,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     }
 
     /// @inheritdoc IAloePredictionsActions
-    function claimReward(uint40 key) external override lock {
+    function claimReward(uint40 key, address[] calldata extras) external override lock {
         Proposal storage proposal = proposals[key];
         require(proposal.upper != 0, "Aloe: Nothing to claim");
 
@@ -151,7 +153,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         if (summary.accumulators.proposalCount == 1) {
             require(ALOE.transfer(proposal.source, proposal.stake), "Aloe: failed to reward");
             emit ClaimedReward(proposal.source, proposal.epoch, key, proposal.stake);
-            _archiveProposal(proposal, proposal.stake);
+            delete proposals[key];
             return;
         }
 
@@ -166,47 +168,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         uint256 stakeTotal = summary.accumulators.stakeTotal;
 
         UINT512 memory temp;
-        UINT512 memory denom;
-
-        // Consolidate accumulators into variables better-suited for
-        // reward computation
-        if (summary.accumulators.stake1stMomentRaw != 0) {
-            // Reassign sumOfSquaredBounds to sumOfSquaredErrors
-            summary.accumulators.sumOfSquaredBounds = Equations.eqn1(
-                summary.accumulators.sumOfSquaredBounds,
-                summary.accumulators.sumOfLowerBounds,
-                summary.accumulators.sumOfUpperBounds,
-                summary.accumulators.proposalCount,
-                summary.groundTruth.lower,
-                summary.groundTruth.upper
-            );
-
-            // Compute reward denominator
-            denom = summary.accumulators.sumOfSquaredBounds;
-            // --> Scale this initial term by total stake
-            (denom.LS, denom.MS) = denom.muls(stakeTotal);
-            // --> Subtract sum of all weighted squared errors
-            temp = Equations.eqn1(
-                summary.accumulators.sumOfSquaredBoundsWeighted,
-                summary.accumulators.sumOfLowerBoundsWeighted,
-                summary.accumulators.sumOfUpperBoundsWeighted,
-                stakeTotal,
-                summary.groundTruth.lower,
-                summary.groundTruth.upper
-            );
-            (denom.LS, denom.MS) = denom.sub(temp.LS, temp.MS);
-
-            // Reassign sumOfSquaredBoundsWeighted to denom
-            summary.accumulators.sumOfSquaredBoundsWeighted = denom;
-
-            delete summary.accumulators.stake1stMomentRaw;
-            delete summary.accumulators.sumOfLowerBounds;
-            delete summary.accumulators.sumOfLowerBoundsWeighted;
-            delete summary.accumulators.sumOfUpperBounds;
-            delete summary.accumulators.sumOfUpperBoundsWeighted;
-        } else {
-            denom = summary.accumulators.sumOfSquaredBoundsWeighted;
-        }
 
         // Compute reward numerator
         // --> Start with sum of all squared errors
@@ -218,6 +179,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         (numer.LS, numer.MS) = numer.sub(temp.LS, temp.MS);
         // --> Weight entire numerator by proposal's stake
         (numer.LS, numer.MS) = numer.muls(proposal.stake);
+
+        UINT512 memory denom = summary.accumulators.sumOfSquaredBoundsWeighted;
 
         // Now our 4 key numbers are available: numerLS, numerMS, denomLS, denomMS
         uint256 reward;
@@ -241,7 +204,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
 
         require(ALOE.transfer(proposal.source, reward), "Aloe: failed to reward");
         emit ClaimedReward(proposal.source, proposal.epoch, key, uint80(reward));
-        _archiveProposal(proposal, uint80(reward));
+        delete proposals[key];
     }
 
     /// @inheritdoc IAloePredictionsDerivedState

@@ -42,6 +42,7 @@ interface IAloePredictionsActions {
      * @dev ALOE is sent to `proposal.source` not `msg.sender`, so anyone can trigger a claim
      * for anyone else
      * @param key The key of the proposal that should be judged and rewarded
+     * @param extras An array of tokens for which extra incentives should be claimed
      */
-    function claimReward(uint40 key) external;
+    function claimReward(uint40 key, address[] calldata extras) external;
 }

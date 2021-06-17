@@ -99,6 +99,15 @@ contract AloePredictionsState {
         proposal.upper = upper;
     }
 
+    function _archiveProposal(
+        Proposal storage proposal,
+        uint80 reward
+    ) internal {
+        delete proposal.lower;
+        delete proposal.upper;
+        proposal.stake = reward;
+    }
+
     function accumulate(
         uint80 stake,
         uint176 lower,

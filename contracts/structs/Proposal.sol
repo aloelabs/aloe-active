@@ -10,6 +10,6 @@ struct Proposal {
     uint176 lower;
     // Q128.48 price at tickUpper of proposed Uniswap position
     uint176 upper;
-    // The amount of ALOE staked; fits in uint80 because max supply is 1000000 with 18 decimals
+    // The amount of ALOE held; fits in uint80 because max supply is 1000000 with 18 decimals
     uint80 stake;
 }

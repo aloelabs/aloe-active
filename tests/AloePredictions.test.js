@@ -4,8 +4,8 @@ const { artifacts } = require("hardhat");
 
 const Big = require("big.js");
 
-const ALOE = artifacts.require("ALOE");
-const AloeV100Prediction = artifacts.require("AloePredictions");
+const ALOE = artifacts.require("preALOE");
+const AloePredictions = artifacts.require("AloePredictions");
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -37,8 +37,8 @@ describe("Predictions Contract Test @hardhat", function () {
 
   before(async function () {
     accounts = await web3.eth.getAccounts();
-    aloe = await ALOE.new();
-    predictions = await AloeV100Prediction.new(
+    aloe = await ALOE.new(accounts[0], "0x0000000000000000000000000000000000000001");
+    predictions = await AloePredictions.new(
       aloe.address,
       "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8"
     );
@@ -197,9 +197,9 @@ describe("Predictions Contract Test @hardhat", function () {
 
   it("should submit proposals large enough to exceed uint256 accumulators", async () => {
     const tx0 = await predictions.submitProposal(
-      "0x40000000000000000000000000000000000000000000",
-      "0x80000000000000000000000000000000000000000000",
-      "0x152D02C7E14AF6800000"
+      "0xE0000000000000000000000000000000000000000000",
+      "0xF0000000000000000000000000000000000000000000",
+      "0xA604B9A42DF9CA00000"
     );
     expect(tx0.receipt.status).to.be.true;
   });

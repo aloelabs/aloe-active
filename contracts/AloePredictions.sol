@@ -143,16 +143,15 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     /// @inheritdoc IAloePredictionsActions
     function claimReward(uint40 key) external override lock {
         Proposal storage proposal = proposals[key];
-        require(proposal.stake != 0, "Aloe: Nothing to claim");
+        require(proposal.upper != 0, "Aloe: Nothing to claim");
 
         EpochSummary storage summary = summaries[proposal.epoch];
-        require(summary.groundTruth.lower != 0, "Aloe: Need ground truth");
         require(summary.groundTruth.upper != 0, "Aloe: Need ground truth");
 
         if (summary.accumulators.proposalCount == 1) {
             require(ALOE.transfer(proposal.source, proposal.stake), "Aloe: failed to reward");
             emit ClaimedReward(proposal.source, proposal.epoch, key, proposal.stake);
-            delete proposals[key];
+            _archiveProposal(proposal, proposal.stake);
             return;
         }
 
@@ -164,6 +163,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
             proposal.upper > summary.groundTruth.upper
                 ? proposal.upper - summary.groundTruth.upper
                 : summary.groundTruth.upper - proposal.upper;
+        uint256 stakeTotal = summary.accumulators.stakeTotal;
 
         UINT512 memory sumOfSquaredErrors =
             Equations.eqn1(
@@ -179,7 +179,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
                 summary.accumulators.sumOfSquaredBoundsWeighted,
                 summary.accumulators.sumOfLowerBoundsWeighted,
                 summary.accumulators.sumOfUpperBoundsWeighted,
-                summary.accumulators.stakeTotal,
+                stakeTotal,
                 summary.groundTruth.lower,
                 summary.groundTruth.upper
             );
@@ -199,7 +199,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         // Compute reward denominator
         UINT512 memory denom = UINT512(sumOfSquaredErrors.LS, sumOfSquaredErrors.MS);
         // --> Scale this initial term by total stake
-        (denom.LS, denom.MS) = denom.muls(summary.accumulators.stakeTotal);
+        (denom.LS, denom.MS) = denom.muls(stakeTotal);
         // --> Subtract sum of all weighted squared errors
         (denom.LS, denom.MS) = denom.sub(sumOfSquaredErrorsWeighted.LS, sumOfSquaredErrorsWeighted.MS);
 
@@ -208,15 +208,15 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         if (denom.MS == 0) {
             // If denominator MS is 0, then numerator MS is 0 as well.
             // This simplifies things substantially:
-            reward = FullMath.mulDiv(summary.accumulators.stakeTotal, numer.LS, denom.LS);
+            reward = FullMath.mulDiv(stakeTotal, numer.LS, denom.LS);
         } else {
             if (numer.LS != 0) {
                 reward = 257 + FullMath.log2floor(denom.MS) - FullMath.log2floor(numer.LS);
-                reward = reward < 80 ? summary.accumulators.stakeTotal / (2**reward) : 0;
+                reward = reward < 80 ? stakeTotal / (2**reward) : 0;
             }
             if (numer.MS != 0) {
                 reward += FullMath.mulDiv(
-                    summary.accumulators.stakeTotal,
+                    stakeTotal,
                     TWO_80 * numer.MS,
                     TWO_80 * denom.MS + FullMath.mulDiv(TWO_80, denom.LS, type(uint256).max)
                 );
@@ -225,7 +225,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
 
         require(ALOE.transfer(proposal.source, reward), "Aloe: failed to reward");
         emit ClaimedReward(proposal.source, proposal.epoch, key, uint80(reward));
-        delete proposals[key];
+        _archiveProposal(proposal, uint80(reward));
     }
 
     /// @inheritdoc IAloePredictionsDerivedState

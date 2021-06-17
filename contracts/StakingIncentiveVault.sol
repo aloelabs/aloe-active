@@ -52,6 +52,13 @@ contract StakingIncentiveVault {
         configs[market][token] = Config(incentivePerEpoch, lastIncentivizedEpoch);
     }
 
+    /**
+     * @notice Allows anyone to claim incentives for a proposal. Note that the baseline
+     * proposal reward needs to have been claimed first (`market.claimReward(key)`)
+     * @param market The predictions market containing the proposal in question
+     * @param key The key of the proposal for which incentives should be claimed
+     * @param tokens An array of tokens to claim
+     */
     function claimIncentives(
         address market,
         uint40 key,
@@ -85,32 +92,4 @@ contract StakingIncentiveVault {
             );
         }
     }
-
-    /**
-     * @notice Allows a predictions contract to claim incentives on behalf of a user
-     * @dev Should only be called once per-user per-epoch. And fails if vault has insufficient
-     * funds to make good on incentives
-     * @param to The user to whom incentives should be sent
-     * @param reward The preALOE reward earned by the user
-     * @param stakeTotal The total amount of preALOE staked in the pertinent epoch
-     * @param tokens An array of tokens for which incentives should be claimed
-     */
-    // function claimIncentives(
-    //     address to,
-    //     uint80 reward,
-    //     uint80 stakeTotal,
-    //     address[] calldata tokens
-    // ) external {
-    //     for (uint256 i = 0; i < tokens.length; i++) {
-    //         require(
-    //             IERC20(tokens[i]).transfer(
-    //                 to,
-    //                 // If `msg.sender` is anything but an incentivized predictions market, this expression
-    //                 // will evaluate to 0
-    //                 (incentivesPerEpoch[msg.sender][tokens[i]] * uint256(reward)) / uint256(stakeTotal)
-    //             ),
-    //             "Transfer fail"
-    //         );
-    //     }
-    // }
 }

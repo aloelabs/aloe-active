@@ -20,6 +20,9 @@ contract Deployer is IncentiveVault {
     /// that order of token A/B doesn't matter
     mapping(address => mapping(address => mapping(uint24 => address))) public getMarket;
 
+    /// @dev A mapping that indicates which addresses are Aloe predictions markets
+    mapping(address => bool) public doesMarketExist;
+
     constructor(
         address _ALOE,
         IUniswapV3Factory _UNI_FACTORY,
@@ -37,6 +40,7 @@ contract Deployer is IncentiveVault {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         market = deploy(token0, token1, fee);
 
+        doesMarketExist[market] = true;
         // Populate mapping such that token order doesn't matter
         getMarket[token0][token1][fee] = market;
         getMarket[token1][token0][fee] = market;

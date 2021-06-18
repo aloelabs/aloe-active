@@ -3,13 +3,25 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
+import "./Deployer.sol";
+
 contract preALOE is ERC20 {
-    address immutable multisig;
+    Deployer DEPLOYER;
+
+    address public multisig;
+
+    address public merkleDistributor;
 
     bool public transfersAreLimited = true;
 
-    constructor(address _multisig, address merkleDistributor) ERC20("Pre-Aloe", "preALOE") {
+    constructor(
+        Deployer _DEPLOYER,
+        address _multisig,
+        address _merkleDistributor
+    ) ERC20("Pre-Aloe", "preALOE") {
+        DEPLOYER = _DEPLOYER;
         multisig = _multisig;
+        merkleDistributor = _merkleDistributor;
 
         // For community staking bot
         _mint(_multisig, 50_000 ether);
@@ -31,8 +43,14 @@ contract preALOE is ERC20 {
     ) internal virtual override {
         super._beforeTokenTransfer(from, to, amount); // Call parent hook
 
-        // if (transfersAreLimited && from != address(0) && to != address(0)) {
-        //     require((from == hackathonMarket) || (to == hackathonMarket), "Hackathon limit");
-        // }
+        if (transfersAreLimited && from != address(0) && to != address(0)) {
+            require(
+                from == multisig ||
+                    from == merkleDistributor ||
+                    DEPLOYER.doesMarketExist(from) ||
+                    DEPLOYER.doesMarketExist(to),
+                "Transfer blocked"
+            );
+        }
     }
 }

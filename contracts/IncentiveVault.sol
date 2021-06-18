@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract IncentiveVault {
-    address immutable multisig;
 
     /// @dev A mapping from predictions address to token address to incentive per epoch (amount)
     mapping(address => mapping(address => uint256)) public stakingIncentivesPerEpoch;
@@ -13,7 +12,10 @@ contract IncentiveVault {
     /// @dev A mapping from predictions address to token address to incentive per advance (amount)
     mapping(address => mapping(address => uint256)) public advanceIncentives;
 
+    /// @dev A mapping from unique hashes to claim status
     mapping(bytes32 => bool) public claimed;
+
+    address immutable multisig;
 
     constructor(address _multisig) {
         multisig = _multisig;

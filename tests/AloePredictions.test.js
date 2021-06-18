@@ -6,6 +6,7 @@ const Big = require("big.js");
 
 const ALOE = artifacts.require("preALOE");
 const AloePredictions = artifacts.require("AloePredictions");
+const IncentiveVault = artifacts.require("IncentiveVault");
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -29,6 +30,7 @@ web3.eth.extend({
 describe("Predictions Contract Test @hardhat", function () {
   let accounts;
   let aloe;
+  let incentives;
   let predictions;
 
   const Q32DENOM = 2 ** 32;
@@ -37,10 +39,15 @@ describe("Predictions Contract Test @hardhat", function () {
 
   before(async function () {
     accounts = await web3.eth.getAccounts();
-    aloe = await ALOE.new(accounts[0], "0x0000000000000000000000000000000000000001");
+    aloe = await ALOE.new(
+      accounts[0],
+      "0x0000000000000000000000000000000000000001"
+    );
+    incentives = await IncentiveVault.new(accounts[0]);
     predictions = await AloePredictions.new(
       aloe.address,
-      "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8"
+      "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8",
+      incentives.address
     );
   });
 
@@ -284,5 +291,28 @@ describe("Predictions Contract Test @hardhat", function () {
     );
     const tx3 = await predictions.advance();
     const tx4 = await predictions.claimReward(tx0.logs[0].args.key, []);
+  });
+
+  it("should claim one big one tiny proposal", async () => {
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx0 = await predictions.submitProposal(
+      10000000000,
+      500000000000,
+      1
+    );
+    const tx1 = await predictions.submitProposal(
+      10000000000,
+      500000000000,
+      "0xA604B9A42DF9CA00000"
+    );
+    const tx2 = await predictions.advance();
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx3 = await predictions.submitProposal(
+      10000000000,
+      500000000000,
+      1
+    );
+    const tx4 = await predictions.advance();
+    const tx5 = await predictions.claimReward(tx0.logs[0].args.key, []);
   });
 });

@@ -14,6 +14,7 @@ import "./libraries/UINT512.sol";
 import "./interfaces/IAloePredictions.sol";
 
 import "./AloePredictionsState.sol";
+import "./IncentiveVault.sol";
 
 /*
                                                                                                                         
@@ -67,6 +68,9 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     /// @dev The Uniswap pair for which predictions should be made
     IUniswapV3Pool public immutable UNI_POOL;
 
+    /// @dev The incentive vault to use for staking extras and `advance()` reward
+    IncentiveVault public immutable INCENTIVE_VAULT;
+
     /// @dev For reentrancy check
     bool private locked;
 
@@ -77,9 +81,14 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         locked = false;
     }
 
-    constructor(IERC20 _ALOE, IUniswapV3Pool _UNI_POOL) AloePredictionsState() {
+    constructor(
+        IERC20 _ALOE,
+        IUniswapV3Pool _UNI_POOL,
+        IncentiveVault _INCENTIVE_VAULT
+    ) AloePredictionsState() {
         ALOE = _ALOE;
         UNI_POOL = _UNI_POOL;
+        INCENTIVE_VAULT = _INCENTIVE_VAULT;
 
         // Ensure we have an hour of data, assuming Uniswap interaction every 10 seconds
         _UNI_POOL.increaseObservationCardinalityNext(360);
@@ -115,6 +124,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         }
 
         epoch++;
+        INCENTIVE_VAULT.claimAdvanceIncentive(address(ALOE), msg.sender);
         emit Advanced(epoch, uint32(block.timestamp));
     }
 
@@ -150,13 +160,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         EpochSummary storage summary = summaries[proposal.epoch];
         require(summary.groundTruth.upper != 0, "Aloe: Need ground truth");
 
-        if (summary.accumulators.proposalCount == 1) {
-            require(ALOE.transfer(proposal.source, proposal.stake), "Aloe: failed to reward");
-            emit ClaimedReward(proposal.source, proposal.epoch, key, proposal.stake);
-            delete proposals[key];
-            return;
-        }
-
         uint256 lowerError =
             proposal.lower > summary.groundTruth.lower
                 ? proposal.lower - summary.groundTruth.lower
@@ -184,9 +187,12 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
 
         // Now our 4 key numbers are available: numerLS, numerMS, denomLS, denomMS
         uint256 reward;
-        if (denom.MS == 0) {
+        if (denom.MS == 0 && denom.LS == 0) {
+            // In this case, only 1 proposal was submitted
+            reward = proposal.stake;
+        } else if (denom.MS == 0) {
             // If denominator MS is 0, then numerator MS is 0 as well.
-            // This simplifies things substantially:
+            // This keeps things simple:
             reward = FullMath.mulDiv(stakeTotal, numer.LS, denom.LS);
         } else {
             if (numer.LS != 0) {
@@ -203,6 +209,8 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
         }
 
         require(ALOE.transfer(proposal.source, reward), "Aloe: failed to reward");
+        if (extras.length != 0)
+            INCENTIVE_VAULT.claimStakingIncentives(key, extras, proposal.source, uint80(reward), uint80(stakeTotal));
         emit ClaimedReward(proposal.source, proposal.epoch, key, uint80(reward));
         delete proposals[key];
     }

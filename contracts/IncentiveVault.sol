@@ -115,6 +115,9 @@ contract IncentiveVault {
      * @param to The user to whom incentive should be sent
      */
     function claimAdvanceIncentive(address token, address to) external {
-        require(IERC20(token).transfer(to, advanceIncentives[msg.sender][token]), "Failed transfer");
+        uint256 amount = advanceIncentives[msg.sender][token];
+        if (amount == 0) return;
+
+        require(IERC20(token).transfer(to, amount), "Failed transfer");
     }
 }

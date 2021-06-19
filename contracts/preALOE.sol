@@ -3,10 +3,10 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import "./Deployer.sol";
+import "./Factory.sol";
 
 contract preALOE is ERC20 {
-    Deployer DEPLOYER;
+    Factory FACTORY;
 
     address public multisig;
 
@@ -15,16 +15,16 @@ contract preALOE is ERC20 {
     bool public transfersAreLimited = true;
 
     constructor(
-        Deployer _DEPLOYER,
+        Factory _FACTORY,
         address _multisig,
         address _merkleDistributor
     ) ERC20("Pre-Aloe", "preALOE") {
-        DEPLOYER = _DEPLOYER;
+        FACTORY = _FACTORY;
         multisig = _multisig;
         merkleDistributor = _merkleDistributor;
 
         // For boosted staking incentive
-        _mint(address(_DEPLOYER), 22_000 ether);
+        _mint(address(_FACTORY), 22_000 ether);
         // For community staking bot
         _mint(_multisig, 50_000 ether);
         // For hackathon & quiz winners
@@ -47,9 +47,9 @@ contract preALOE is ERC20 {
             require(
                 from == multisig ||
                     from == merkleDistributor ||
-                    from == address(DEPLOYER) ||
-                    DEPLOYER.doesMarketExist(from) ||
-                    DEPLOYER.doesMarketExist(to),
+                    from == address(FACTORY) ||
+                    FACTORY.doesMarketExist(from) ||
+                    FACTORY.doesMarketExist(to),
                 "Transfer blocked"
             );
         }

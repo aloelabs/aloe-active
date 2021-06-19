@@ -9,7 +9,7 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "./AloePredictions.sol";
 import "./IncentiveVault.sol";
 
-contract Deployer is IncentiveVault {
+contract Factory is IncentiveVault {
     /// @dev The ALOE token used for staking
     address public immutable ALOE;
 

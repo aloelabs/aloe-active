@@ -5,7 +5,7 @@ const { artifacts } = require("hardhat");
 const { Address, BN } = require("ethereumjs-util");
 const Big = require("big.js");
 
-const Factory = artifacts.require("Deployer");
+const Factory = artifacts.require("Factory");
 const preALOE = artifacts.require("preALOE");
 const MerkleDistributor = artifacts.require("MerkleDistributor");
 const AloePredictions = artifacts.require("AloePredictions");

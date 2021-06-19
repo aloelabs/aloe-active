@@ -6,7 +6,9 @@
   "author": "Aloe Capital LLC",
   "license": "None",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "ethereumjs-util": "^7.0.10"
+  },
   "devDependencies": {
     "@chainlink/contracts": "^0.1.7",
     "@nomiclabs/hardhat-etherscan": "^2.1.2",

@@ -23,10 +23,10 @@ contract preALOE is ERC20 {
         multisig = _multisig;
         merkleDistributor = _merkleDistributor;
 
+        // For boosted staking incentive
+        _mint(address(_DEPLOYER), 22_000 ether);
         // For community staking bot
         _mint(_multisig, 50_000 ether);
-        // For boosted staking incentive
-        _mint(_multisig, 22_000 ether);
         // For hackathon & quiz winners
         _mint(merkleDistributor, 10_000 ether);
     }
@@ -47,6 +47,7 @@ contract preALOE is ERC20 {
             require(
                 from == multisig ||
                     from == merkleDistributor ||
+                    from == address(DEPLOYER) ||
                     DEPLOYER.doesMarketExist(from) ||
                     DEPLOYER.doesMarketExist(to),
                 "Transfer blocked"

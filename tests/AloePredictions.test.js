@@ -2,11 +2,13 @@ const chai = require("chai");
 const chaiAsPromised = require("chai-as-promised");
 const { artifacts } = require("hardhat");
 
+const { Address, BN } = require("ethereumjs-util");
 const Big = require("big.js");
 
-const ALOE = artifacts.require("preALOE");
+const Factory = artifacts.require("Deployer");
+const preALOE = artifacts.require("preALOE");
+const MerkleDistributor = artifacts.require("MerkleDistributor");
 const AloePredictions = artifacts.require("AloePredictions");
-const IncentiveVault = artifacts.require("IncentiveVault");
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -27,37 +29,80 @@ web3.eth.extend({
   ],
 });
 
+const generatedMerkleTree = require("../scripts/merkle_result.json");
+
 describe("Predictions Contract Test @hardhat", function () {
   let accounts;
+  let multisig;
+  let factory;
+  let merkle;
   let aloe;
-  let incentives;
   let predictions;
 
   const Q32DENOM = 2 ** 32;
   const UINT256MAX =
     "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+  const ADDRESS_UNI_FACTORY = "0x1F98431c8aD98523631AE4a59f267346ea31F984";
+  const ADDRESS_USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+  const ADDRESS_WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
-  before(async function () {
+  it("should deploy protocol", async () => {
     accounts = await web3.eth.getAccounts();
-    aloe = await ALOE.new(
-      accounts[0],
-      "0x0000000000000000000000000000000000000001"
+    multisig = accounts[0]; // process.env.MULTISIG
+
+    const mainDeployer = web3.eth.accounts.privateKeyToAccount(
+      process.env.OTHER_DEPLOYER
     );
-    incentives = await IncentiveVault.new(accounts[0]);
-    predictions = await AloePredictions.new(
-      aloe.address,
-      "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8",
-      incentives.address
+    const aloeDeployer = web3.eth.accounts.privateKeyToAccount(
+      process.env.ALOE_DEPLOYER
+    );
+    const aloeDeployerNonce = await web3.eth.getTransactionCount(
+      aloeDeployer.address
+    );
+    const aloeContractAddress = web3.utils.toChecksumAddress(
+      Address.generate(
+        Address.fromString(aloeDeployer.address),
+        new BN(aloeDeployerNonce)
+      ).toString()
+    );
+
+    factory = await Factory.new(
+      aloeContractAddress,
+      ADDRESS_UNI_FACTORY,
+      multisig,
+      { from: mainDeployer.address }
+    );
+    merkle = await MerkleDistributor.new(
+      aloeContractAddress,
+      generatedMerkleTree.merkleRoot,
+      { from: mainDeployer.address }
+    );
+    aloe = await preALOE.new(factory.address, multisig, merkle.address, {
+      from: aloeDeployer.address,
+    });
+
+    expect(aloeContractAddress).to.equal(aloe.address);
+  });
+
+  it('should deploy predictions', async () => {
+    const tx = await factory.createMarket(ADDRESS_USDC, ADDRESS_WETH, 3000);
+    expect(tx.receipt.status).to.be.true;
+
+    predictions = await AloePredictions.at(await factory.getMarket(
+      ADDRESS_USDC, ADDRESS_WETH, 3000
+    ));
+    expect(predictions.address).to.equal(
+      "0xb648C50ABf64938ccD0E65E9F1bF1D5B489f34ca"
     );
   });
 
-  it("should give caller 1000000 ALOE", async () => {
-    const balance = await aloe.balanceOf(accounts[0]);
-    expect(balance.gt(100000000000000000000000)).to.be.true;
+  it("should give multisig 50000 ALOE", async () => {
+    const balance = await aloe.balanceOf(multisig);
+    expect(balance.toString(10)).to.equal("50000000000000000000000");
   });
 
   it("should approve contract", async () => {
-    const tx = await aloe.approve(predictions.address, UINT256MAX);
+    const tx = await aloe.approve(predictions.address, UINT256MAX, {from: multisig });
 
     expect(tx.receipt.status).to.be.true;
     expect(tx.logs[0].event).to.equal("Approval");

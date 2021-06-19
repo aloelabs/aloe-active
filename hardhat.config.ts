@@ -1,15 +1,15 @@
-import fs from 'fs';
-import path from 'path';
+import fs from "fs";
+import path from "path";
 
-require('dotenv-safe').config();
+require("dotenv-safe").config();
 
-require('@nomiclabs/hardhat-truffle5');
+require("@nomiclabs/hardhat-truffle5");
 
-require('@nomiclabs/hardhat-etherscan');
+require("@nomiclabs/hardhat-etherscan");
 
 const mochaConfig = {
   timeout: 180000,
-  grep: '@hardhat',
+  grep: "@hardhat",
 };
 
 const compilerSettings = {
@@ -17,20 +17,35 @@ const compilerSettings = {
     enabled: true,
     runs: 800,
   },
-  metadata: { bytecodeHash: 'none' },
+  metadata: { bytecodeHash: "none" },
 };
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
-  defaultNetwork: 'hardhat',
+  defaultNetwork: "hardhat",
   networks: {
     hardhat: {
       forking: {
         url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.PROVIDER_ALCHEMY_KEY}`,
         blockNumber: 12519847,
-      }
+      },
+      accounts: [
+        {
+          privateKey:
+            "0101010101010101010101010101010101010101010101010101010101010101",
+          balance: "2000000000000000000",
+        },
+        {
+          privateKey: process.env.OTHER_DEPLOYER,
+          balance: "2000000000000000000",
+        },
+        {
+          privateKey: process.env.ALOE_DEPLOYER,
+          balance: "2000000000000000000",
+        },
+      ],
     },
     mainnet: {
       url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.PROVIDER_ALCHEMY_KEY}`,
@@ -41,7 +56,6 @@ module.exports = {
     kovan: {
       url: `https://eth-kovan.alchemyapi.io/v2/${process.env.PROVIDER_ALCHEMY_KEY}`,
       timeout: 720000,
-      accounts: [process.env.KOVAN_DEPLOYER],
     },
   },
   etherscan: {
@@ -50,15 +64,15 @@ module.exports = {
   solidity: {
     compilers: [
       {
-        version: '0.8.4',
+        version: "0.8.4",
         settings: compilerSettings,
       },
     ],
   },
   paths: {
-    sources: './contracts',
-    tests: './tests',
-    artifacts: './build',
+    sources: "./contracts",
+    tests: "./tests",
+    artifacts: "./build",
   },
   mocha: mochaConfig,
 };

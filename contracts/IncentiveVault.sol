@@ -60,7 +60,7 @@ contract IncentiveVault {
         address market,
         address token,
         uint256 incentivePerEpoch
-    ) private {
+    ) external {
         require(msg.sender == multisig, "Not authorized");
         stakingIncentivesPerEpoch[market][token] = incentivePerEpoch;
     }
@@ -106,7 +106,7 @@ contract IncentiveVault {
         address market,
         address token,
         uint80 amount
-    ) private {
+    ) external {
         require(msg.sender == multisig, "Not authorized");
         advanceIncentives[market][token] = amount;
     }

@@ -84,13 +84,13 @@ describe("Predictions Contract Test @hardhat", function () {
     expect(aloeContractAddress).to.equal(aloe.address);
   });
 
-  it('should deploy predictions', async () => {
+  it("should deploy predictions", async () => {
     const tx = await factory.createMarket(ADDRESS_USDC, ADDRESS_WETH, 3000);
     expect(tx.receipt.status).to.be.true;
 
-    predictions = await AloePredictions.at(await factory.getMarket(
-      ADDRESS_USDC, ADDRESS_WETH, 3000
-    ));
+    predictions = await AloePredictions.at(
+      await factory.getMarket(ADDRESS_USDC, ADDRESS_WETH, 3000)
+    );
     expect(predictions.address).to.equal(
       "0xb648C50ABf64938ccD0E65E9F1bF1D5B489f34ca"
     );
@@ -102,7 +102,9 @@ describe("Predictions Contract Test @hardhat", function () {
   });
 
   it("should approve contract", async () => {
-    const tx = await aloe.approve(predictions.address, UINT256MAX, {from: multisig });
+    const tx = await aloe.approve(predictions.address, UINT256MAX, {
+      from: multisig,
+    });
 
     expect(tx.receipt.status).to.be.true;
     expect(tx.logs[0].event).to.equal("Approval");
@@ -340,11 +342,7 @@ describe("Predictions Contract Test @hardhat", function () {
 
   it("should claim one big one tiny proposal", async () => {
     await web3.eth.hardhat.increaseTime(3600);
-    const tx0 = await predictions.submitProposal(
-      10000000000,
-      500000000000,
-      1
-    );
+    const tx0 = await predictions.submitProposal(10000000000, 500000000000, 1);
     const tx1 = await predictions.submitProposal(
       10000000000,
       500000000000,
@@ -352,12 +350,44 @@ describe("Predictions Contract Test @hardhat", function () {
     );
     const tx2 = await predictions.advance();
     await web3.eth.hardhat.increaseTime(3600);
-    const tx3 = await predictions.submitProposal(
-      10000000000,
-      500000000000,
-      1
-    );
+    const tx3 = await predictions.submitProposal(10000000000, 500000000000, 1);
     const tx4 = await predictions.advance();
     const tx5 = await predictions.claimReward(tx0.logs[0].args.key, []);
+    const tx6 = await predictions.claimReward(tx1.logs[0].args.key, []);
+  });
+
+  it("should claim incentives", async () => {
+    const tx0 = await factory.setStakingIncentive(
+      predictions.address,
+      aloe.address,
+      "10000000000000000000",
+      { from: multisig }
+    );
+    const tx1 = await factory.setAdvanceIncentive(
+      predictions.address,
+      aloe.address,
+      "500000000000000000",
+      { from: multisig }
+    );
+
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx2 = await predictions.submitProposal(10000000000, 500000000000, 10);
+
+    const balance0 = await aloe.balanceOf(multisig);
+    const tx3 = await predictions.advance();
+    const balance1 = await aloe.balanceOf(multisig);
+
+    await web3.eth.hardhat.increaseTime(3600);
+    await predictions.submitProposal(10000000000, 500000000000, 10);
+    await predictions.advance();
+
+    const balance2 = await aloe.balanceOf(multisig);
+    const tx4 = await predictions.claimReward(tx2.logs[0].args.key, [aloe.address]);
+    const balance3 = await aloe.balanceOf(multisig);
+
+    expect(balance1.sub(balance0).toString(10)).to.equal("500000000000000000");
+    expect(balance3.sub(balance2).toString(10)).to.equal(
+      "10000000000000000010"
+    );
   });
 });

@@ -8,7 +8,9 @@ import "./structs/Accumulators.sol";
 import "./structs/EpochSummary.sol";
 import "./structs/Proposal.sol";
 
-contract AloePredictionsState {
+import "./interfaces/IAloePredictionsState.sol";
+
+contract AloePredictionsState is IAloePredictionsState {
     using UINT512Math for UINT512;
 
     /// @dev The maximum number of proposals that should be aggregated
@@ -17,26 +19,26 @@ contract AloePredictionsState {
     /// @dev A mapping containing a summary of every epoch
     mapping(uint24 => EpochSummary) public summaries;
 
-    /// @dev A mapping containing every proposal
-    mapping(uint40 => Proposal) public proposals;
+    /// @inheritdoc IAloePredictionsState
+    mapping(uint40 => Proposal) public override proposals;
 
     /// @dev An array containing keys of the highest-stake proposals in the current epoch
     uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
 
-    /// @dev The unique ID that will be assigned to the next submitted proposal
-    uint40 public nextProposalKey = 0;
+    /// @inheritdoc IAloePredictionsState
+    uint40 public override nextProposalKey = 0;
 
-    /// @dev The current epoch. May increase up to once per hour. Never decreases
-    uint24 public epoch;
+    /// @inheritdoc IAloePredictionsState
+    uint24 public override epoch;
 
-    /// @dev The time at which the current epoch started
-    uint32 public epochStartTime;
+    /// @inheritdoc IAloePredictionsState
+    uint32 public override epochStartTime;
 
-    /// @dev Whether new proposals should be submitted with inverted prices
-    bool public shouldInvertPrices;
+    /// @inheritdoc IAloePredictionsState
+    bool public override shouldInvertPrices;
 
-    /// @dev Whether proposals in `epoch - 1` were submitted with inverted prices
-    bool public didInvertPrices;
+    /// @inheritdoc IAloePredictionsState
+    bool public override didInvertPrices;
 
     /// @dev Should run after `_submitProposal`, otherwise `accumulators.proposalCount` will be off by 1
     function _organizeProposals(uint40 newestProposalKey, uint80 newestProposalStake) internal {

@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract IncentiveVault {
+    using SafeERC20 for IERC20;
 
     /// @dev A mapping from predictions address to token address to incentive per epoch (amount)
     mapping(address => mapping(address => uint256)) public stakingIncentivesPerEpoch;
@@ -47,7 +48,7 @@ contract IncentiveVault {
 
     function transfer(address to, address token) external {
         require(msg.sender == multisig, "Not authorized");
-        require(IERC20(token).transfer(to, IERC20(token).balanceOf(address(this))), "Failed transfer");
+        IERC20(token).safeTransfer(to, IERC20(token).balanceOf(address(this)));
     }
 
     /**
@@ -89,10 +90,7 @@ contract IncentiveVault {
             if (didClaim(msg.sender, key, tokens[i])) continue;
             setClaimed(msg.sender, key, tokens[i]);
 
-            require(
-                IERC20(tokens[i]).transfer(to, (incentivePerEpoch * uint256(reward)) / uint256(stakeTotal)),
-                "Failed transfer"
-            );
+            IERC20(tokens[i]).safeTransfer(to, (incentivePerEpoch * uint256(reward)) / uint256(stakeTotal));
         }
     }
 
@@ -120,6 +118,6 @@ contract IncentiveVault {
         uint256 amount = advanceIncentives[msg.sender][token];
         if (amount == 0) return;
 
-        require(IERC20(token).transfer(to, amount), "Failed transfer");
+        IERC20(token).safeTransfer(to, amount);
     }
 }

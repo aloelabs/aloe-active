@@ -29,7 +29,7 @@ module.exports = {
     hardhat: {
       forking: {
         url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.PROVIDER_ALCHEMY_KEY}`,
-        blockNumber: 12519847,
+        blockNumber: 12718239,
       },
       accounts: [
         {
@@ -51,7 +51,7 @@ module.exports = {
       url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.PROVIDER_ALCHEMY_KEY}`,
       timeout: 720000,
       accounts: [process.env.OTHER_DEPLOYER, process.env.ALOE_DEPLOYER],
-      gasPrice: 8000000000,
+      gasPrice: 10000000000,
       gasMultiplier: 1.15,
     },
     kovan: {

@@ -7,6 +7,7 @@ const Factory = artifacts.require("Factory");
 const preALOE = artifacts.require("preALOE");
 const MerkleDistributor = artifacts.require("MerkleDistributor");
 const AloePredictions = artifacts.require("AloePredictions");
+const AloePool = artifacts.require("AloePoolCapped");
 
 const generatedMerkleTree = require("./merkle_result.json");
 
@@ -37,7 +38,7 @@ async function deployProtocol() {
     ADDRESS_UNI_FACTORY,
     MULTISIG,
     { from: mainDeployer.address }
-  )
+  );
   console.log(`FACTORY deployed to ${factory.address}`);
   console.log(
     `\tparams: ${aloeContractAddress} ${ADDRESS_UNI_FACTORY} ${MULTISIG}`
@@ -67,14 +68,22 @@ async function deployProtocol() {
   return factory;
 }
 
-async function createUSDCETHMarket(factoryAddress) {
+async function createUSDCETHMarket(factoryAddress, feeTier = 3000) {
   const factory = await Factory.at(factoryAddress);
-  await factory.createMarket(ADDRESS_USDC, ADDRESS_WETH, 3000);
+  await factory.createMarket(ADDRESS_USDC, ADDRESS_WETH, feeTier);
   const predictions = await AloePredictions.at(
-    await factory.getMarket(ADDRESS_USDC, ADDRESS_WETH, 3000)
+    await factory.getMarket(ADDRESS_USDC, ADDRESS_WETH, feeTier)
   );
 
   console.log(`USDC/ETH Predictions Market located at ${predictions.address}`);
 }
 
+async function createUSDCETHPool(predictionsMarketAddress) {
+  const pool = await AloePool.new(predictionsMarketAddress, MULTISIG);
+
+  console.log(`USDC/ETH Pool located at ${pool.address}`);
+  console.log(`\tparams: ${predictionsMarketAddress} ${MULTISIG}`);
+}
+
 // deployProtocol().then((factory) => createUSDCETHMarket(factory.address));
+// createUSDCETHPool();

@@ -8,6 +8,7 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 
 import "./libraries/Equations.sol";
 import "./libraries/FullMath.sol";
+import "./libraries/Math.sol";
 import "./libraries/TickMath.sol";
 import "./libraries/UINT512.sol";
 
@@ -49,6 +50,7 @@ import "./IncentiveVault.sol";
 
 uint256 constant TWO_144 = 2**144;
 uint256 constant TWO_80 = 2**80;
+uint256 constant SQRT_6 = 2449;
 
 /// @title Aloe predictions market
 /// @author Aloe Capital LLC
@@ -95,9 +97,29 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     }
 
     /// @inheritdoc IAloePredictionsDerivedState
-    function current() external view override returns (Bounds memory, bool) {
+    function current()
+        external
+        view
+        override
+        returns (
+            bool,
+            uint176,
+            uint128,
+            uint128
+        )
+    {
         require(epoch != 0, "Aloe: No data yet");
-        return (summaries[epoch - 1].aggregate, didInvertPrices);
+
+        uint176 mean = computeMean();
+        (uint256 lower, uint256 upper) = computeSemivariancesAbout(mean);
+        return (
+            didInvertPrices,
+            mean,
+            // Each proposal is a uniform distribution aiming to be `GROUND_TRUTH_STDDEV_SCALE` sigma wide.
+            // So we have to apply a scaling factor (sqrt(6)) to make results more gaussian.
+            uint128((Math.sqrt(lower) * SQRT_6) / (1000 * GROUND_TRUTH_STDDEV_SCALE)),
+            uint128((Math.sqrt(upper) * SQRT_6) / (1000 * GROUND_TRUTH_STDDEV_SCALE))
+        );
     }
 
     /// @inheritdoc IAloePredictionsDerivedState
@@ -109,8 +131,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     function advance() external override lock {
         require(uint32(block.timestamp) > epochExpectedEndTime(), "Aloe: Too early");
         epochStartTime = uint32(block.timestamp);
-
-        summaries[epoch].aggregate = aggregate();
 
         if (epoch != 0) {
             (Bounds memory groundTruth, bool shouldInvertPricesNext) = fetchGroundTruth();
@@ -216,96 +236,82 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     }
 
     /// @inheritdoc IAloePredictionsDerivedState
-    function aggregate() public view override returns (Bounds memory bounds) {
-        Accumulators memory accumulators = summaries[epoch].accumulators;
-
+    function computeMean() public view override returns (uint176 mean) {
+        Accumulators memory accumulators = summaries[epoch - 1].accumulators;
         require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
 
-        uint176 mean = uint176(accumulators.stake1stMomentRaw / accumulators.stakeTotal);
-        uint256 stake1stMomentRawLower;
-        uint256 stake1stMomentRawUpper;
-        uint176 stake2ndMomentNormLower;
-        uint176 stake2ndMomentNormUpper;
-        uint40 i;
-
+        uint256 denominator = accumulators.stake0thMomentRaw;
         // It's more gas efficient to read from memory copy
-        uint40[NUM_PROPOSALS_TO_AGGREGATE] memory keysToAggregate = highestStakeKeys;
+        uint40[NUM_PROPOSALS_TO_AGGREGATE] memory keysToAggregate = highestStakeKeys[(epoch - 1) % 2];
 
         unchecked {
-            for (i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
+            for (uint40 i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
                 Proposal storage proposal = proposals[keysToAggregate[i]];
 
-                if ((proposal.lower < mean) && (proposal.upper < mean)) {
-                    // Proposal is entirely below the mean
-                    stake1stMomentRawLower += uint256(proposal.stake) * uint256(proposal.upper - proposal.lower);
-                } else if (proposal.lower < mean) {
-                    // Proposal includes the mean
-                    stake1stMomentRawLower += uint256(proposal.stake) * uint256(mean - proposal.lower);
-                    stake1stMomentRawUpper += uint256(proposal.stake) * uint256(proposal.upper - mean);
-                } else {
-                    // Proposal is entirely above the mean
-                    stake1stMomentRawUpper += uint256(proposal.stake) * uint256(proposal.upper - proposal.lower);
-                }
+                // These fit in uint176, using uint256 to avoid phantom overflow later on
+                uint256 proposalCenter = (uint256(proposal.lower) + uint256(proposal.upper)) >> 1;
+                uint256 proposalSpread = proposal.upper - proposal.lower;
+
+                mean += uint176(FullMath.mulDiv(uint256(proposal.stake) * proposalSpread, proposalCenter, denominator));
             }
+        }
+    }
 
-            for (i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
+    /// @inheritdoc IAloePredictionsDerivedState
+    function computeSemivariancesAbout(uint176 center) public view override returns (uint256 lower, uint256 upper) {
+        Accumulators memory accumulators = summaries[epoch - 1].accumulators;
+        require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
+
+        uint256 denominator = 3 * accumulators.stake0thMomentRaw;
+        uint256 x;
+        uint256 y;
+        // It's more gas efficient to read from memory copy
+        uint40[NUM_PROPOSALS_TO_AGGREGATE] memory keysToAggregate = highestStakeKeys[(epoch - 1) % 2];
+
+        unchecked {
+            for (uint40 i = 0; i < NUM_PROPOSALS_TO_AGGREGATE && i < accumulators.proposalCount; i++) {
                 Proposal storage proposal = proposals[keysToAggregate[i]];
 
-                if ((proposal.lower < mean) && (proposal.upper < mean)) {
-                    // Proposal is entirely below the mean
-                    // b = mean - proposal.lower
-                    // a = mean - proposal.upper
-                    // b**2 - a**2 = (b-a)(b+a) = (proposal.upper - proposal.lower)(2*mean - proposal.upper - proposal.lower)
-                    //      = 2 * (proposalSpread)(mean - proposalCenter)
+                if (proposal.upper < center) {
+                    // Proposal is entirely below the center
+                    x = center - proposal.upper;
+                    y = center - proposal.lower;
+                    if (x > type(uint128).max) x = type(uint128).max;
+                    if (y > type(uint128).max) y = type(uint128).max;
 
-                    // These fit in uint176, using uint256 to avoid phantom overflow later on
-                    uint256 proposalCenter = (uint256(proposal.lower) + uint256(proposal.upper)) >> 1;
-                    uint256 proposalSpread = proposal.upper - proposal.lower;
-
-                    stake2ndMomentNormLower += uint176(
+                    lower += uint176(
                         FullMath.mulDiv(
-                            uint256(proposal.stake) * proposalSpread,
-                            mean - proposalCenter,
-                            stake1stMomentRawLower
+                            uint256(proposal.stake) * uint256(proposal.upper - proposal.lower),
+                            x**2 + x * y + y**2,
+                            denominator
                         )
                     );
-                } else if (proposal.lower < mean) {
-                    // Proposal includes the mean
+                } else if (proposal.lower < center) {
+                    // Proposal includes the center
+                    x = proposal.upper - center;
+                    y = center - proposal.lower;
+                    if (x > type(uint128).max) x = type(uint128).max;
+                    if (y > type(uint128).max) y = type(uint128).max;
 
-                    // These fit in uint176, using uint256 to avoid phantom overflow later on
-                    uint256 diffLower = mean - proposal.lower;
-                    uint256 diffUpper = proposal.upper - mean;
-
-                    stake2ndMomentNormLower += uint176(
-                        FullMath.mulDiv(uint256(proposal.stake) * diffLower, diffLower, stake1stMomentRawLower << 1)
-                    );
-                    stake2ndMomentNormUpper += uint176(
-                        FullMath.mulDiv(uint256(proposal.stake) * diffUpper, diffUpper, stake1stMomentRawUpper << 1)
-                    );
+                    lower += uint176(FullMath.mulDiv(uint256(proposal.stake) * y, y**2, denominator));
+                    upper += uint176(FullMath.mulDiv(uint256(proposal.stake) * x, x**2, denominator));
                 } else {
-                    // Proposal is entirely above the mean
-                    // b = proposal.upper - mean
-                    // a = proposal.lower - mean
-                    // b**2 - a**2 = (b-a)(b+a) = (proposal.upper - proposal.lower)(proposal.upper + proposal.lower - 2*mean)
-                    //      = 2 * (proposalSpread)(proposalCenter - mean)
+                    // Proposal is entirely above the center
+                    x = proposal.upper - center;
+                    y = proposal.lower - center;
+                    if (x > type(uint128).max) x = type(uint128).max;
+                    if (y > type(uint128).max) y = type(uint128).max;
 
-                    // These fit in uint176, using uint256 to avoid phantom overflow later on
-                    uint256 proposalCenter = (uint256(proposal.lower) + uint256(proposal.upper)) >> 1;
-                    uint256 proposalSpread = proposal.upper - proposal.lower;
-
-                    stake2ndMomentNormUpper += uint176(
+                    upper += uint176(
                         FullMath.mulDiv(
-                            uint256(proposal.stake) * proposalSpread,
-                            proposalCenter - mean,
-                            stake1stMomentRawUpper
+                            uint256(proposal.stake) * uint256(proposal.upper - proposal.lower),
+                            x**2 + x * y + y**2,
+                            denominator
                         )
                     );
                 }
             }
         }
-
-        bounds.lower = mean - stake2ndMomentNormLower;
-        bounds.upper = mean + stake2ndMomentNormUpper;
     }
 
     /// @inheritdoc IAloePredictionsDerivedState

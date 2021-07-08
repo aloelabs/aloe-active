@@ -117,7 +117,10 @@ describe("Predictions Contract Test @hardhat", function () {
     await expect(
       predictions.submitProposal(30000 * Q32DENOM, 50000 * Q32DENOM, 0)
     ).to.eventually.be.rejected;
-    await expect(predictions.aggregate()).to.eventually.be.rejected;
+    await expect(predictions.computeMean()).to.eventually.be.rejected;
+    await expect(predictions.computeSemivariancesAbout(0)).to.eventually.be
+      .rejected;
+    await expect(predictions.current()).to.eventually.be.rejected;
   });
 
   it("should aggregate 1 proposal with stake", async () => {
@@ -127,13 +130,19 @@ describe("Predictions Contract Test @hardhat", function () {
       1
     );
     expect(tx0.receipt.status).to.be.true;
+    await web3.eth.hardhat.increaseTime(3600);
+    await predictions.advance();
 
-    const aggregate = await predictions.aggregate();
-    const lower = new Big(aggregate["0"].toString(10));
-    const upper = new Big(aggregate["1"].toString(10));
+    const mean = await predictions.computeMean();
+    expect(mean.toString(10)).to.equal("257698037760000");
 
-    expect(lower.eq(55000 * Q32DENOM)).to.be.true;
-    expect(upper.eq(65000 * Q32DENOM)).to.be.true;
+    const semivariances = await predictions.computeSemivariancesAbout(
+      mean.toString(10)
+    );
+    const lower = semivariances.lower.toString(10);
+    const upper = semivariances.upper.toString(10);
+    expect(lower).to.equal("307445734561825860266666666");
+    expect(upper).to.equal("307445734561825860266666666");
   });
 
   it("should aggregate 3 proposals with stake", async () => {
@@ -147,63 +156,106 @@ describe("Predictions Contract Test @hardhat", function () {
       50000 * Q32DENOM,
       5000000000
     );
+    const tx2 = await predictions.submitProposal(
+      50000 * Q32DENOM,
+      70000 * Q32DENOM,
+      1
+    );
 
     expect(tx0.receipt.status).to.be.true;
     expect(tx1.receipt.status).to.be.true;
+    expect(tx2.receipt.status).to.be.true;
+    await web3.eth.hardhat.increaseTime(3600);
+    await predictions.advance();
 
-    const aggregate = await predictions.aggregate();
-    const lower = new Big(aggregate["0"].toString(10));
-    const upper = new Big(aggregate["1"].toString(10));
+    const mean = await predictions.computeMean();
+    expect(mean.toString(10)).to.equal("178956970679789");
 
-    console.log(aggregate["0"].toString(10));
-    console.log(aggregate["1"].toString(10));
-
-    expect(lower.eq("154499518016363")).to.be.true;
-    expect(upper.eq("203414423350011")).to.be.true;
-
-    console.log(lower.div(2 ** 32).toFixed(0));
-    console.log(upper.div(2 ** 32).toFixed(0));
+    let semivariances = await predictions.computeSemivariancesAbout(
+      mean.toString(10)
+    );
+    let lower = semivariances.lower.toString(10);
+    let upper = semivariances.upper.toString(10);
+    expect(lower).to.equal("407080926571065155048030412");
+    expect(upper).to.equal("464015322344766593402738844");
   });
 
   it("should aggregate 5 proposals with stake", async () => {
     const tx0 = await predictions.submitProposal(
-      2300 * Q32DENOM,
-      2500 * Q32DENOM,
-      5000000000000
+      40000 * Q32DENOM,
+      60000 * Q32DENOM,
+      1000000000
     );
     const tx1 = await predictions.submitProposal(
-      2700 * Q32DENOM,
-      2900 * Q32DENOM,
-      300000000000
+      30000 * Q32DENOM,
+      50000 * Q32DENOM,
+      5000000000
     );
+    const tx2 = await predictions.submitProposal(
+      50000 * Q32DENOM,
+      70000 * Q32DENOM,
+      1
+    );
+    const tx3 = await predictions.submitProposal(
+      2300 * Q32DENOM,
+      2500 * Q32DENOM,
+      1000000000000
+    );
+    const tx4 = await predictions.submitProposal(
+      2800 * Q32DENOM,
+      2900 * Q32DENOM,
+      50000000000000
+    );
+    await web3.eth.hardhat.increaseTime(3600);
+    await predictions.advance();
+
+    expect(tx0.receipt.status).to.be.true;
+    expect(tx1.receipt.status).to.be.true;
+    expect(tx2.receipt.status).to.be.true;
+    expect(tx3.receipt.status).to.be.true;
+    expect(tx4.receipt.status).to.be.true;
+
+    const mean = await predictions.computeMean();
+    expect(mean.toString(10)).to.equal("15928515931373");
+
+    let semivariances = await predictions.computeSemivariancesAbout(
+      mean.toString(10)
+    );
+    let lower = semivariances.lower.toString(10);
+    let upper = semivariances.upper.toString(10);
+    expect(lower).to.equal("13986635468427976390142812");
+    expect(upper).to.equal("619158796489719736008446879");
+
+    semivariances = await predictions.computeSemivariancesAbout(2000);
+    lower = semivariances.lower.toString(10);
+    upper = semivariances.upper.toString(10);
+    expect(lower).to.equal("0");
+    expect(upper).to.equal("886863051670503170384662437");
+  });
+
+  it("should advance", async () => {
+    const tx0 = await predictions.submitProposal(
+      "117281240296106672259072",
+      "175921860444160000000000",
+      1000000000
+    );
+    await web3.eth.hardhat.increaseTime(3600);
+    const tx1 = await predictions.advance();
 
     expect(tx0.receipt.status).to.be.true;
     expect(tx1.receipt.status).to.be.true;
 
-    const aggregate = await predictions.aggregate();
-    const lower = new Big(aggregate["0"].toString(10));
-    const upper = new Big(aggregate["1"].toString(10));
-
-    console.log(aggregate["0"].toString(10));
-    console.log(aggregate["1"].toString(10));
-
-    expect(lower.eq("10237094213326")).to.be.true;
-    expect(upper.eq("69454514383031")).to.be.true;
-
-    console.log(lower.div(2 ** 32).toFixed(0));
-    console.log(upper.div(2 ** 32).toFixed(0));
-  });
-
-  it("should advance", async () => {
-    const tx0 = await predictions.advance();
-    const current = await predictions.current();
-
-    expect(tx0.receipt.status).to.be.true;
-
     console.log(`Gas required to advance: ${tx0.receipt.gasUsed}`);
 
-    expect(current["0"].lower).to.equal("10237094213326");
-    expect(current["0"].upper).to.equal("69454514383031");
+    const current = await predictions.current();
+    const mean = current["0"];
+    const sigmaL = current["1"];
+    const sigmaU = current["2"];
+    expect(current["3"]).to.be.false;
+
+    expect(mean.toString(10)).to.equal("154635620839935798917977");
+    expect(sigmaL.toString(10)).to.equal("17212834917217674758700");
+    expect(sigmaU.toString(10)).to.equal("7404376861383213387914");
   });
 
   it("should update proposals", async () => {
@@ -224,29 +276,6 @@ describe("Predictions Contract Test @hardhat", function () {
 
     // expect(balance1.addn(9).eq(balance0)).to.be.true;
     // expect(balance2.subn(5).eq(balance1)).to.be.true;
-  });
-
-  it("should aggregate properly after proposal update", async () => {
-    const tx0 = await predictions.submitProposal(500000, 1000000, 100);
-    const idx = tx0.logs[0].args.key.toNumber();
-
-    console.log(`Gas required to add proposal: ${tx0.receipt.gasUsed}`);
-
-    const aggregate0 = await predictions.aggregate();
-    const tx1 = await predictions.updateProposal(idx, 4, 8);
-    const aggregate1 = await predictions.aggregate();
-    const tx2 = await predictions.updateProposal(idx, 500000, 1000000);
-    const aggregate2 = await predictions.aggregate();
-
-    expect(tx0.receipt.status).to.be.true;
-    expect(tx1.receipt.status).to.be.true;
-    expect(tx2.receipt.status).to.be.true;
-
-    expect(aggregate0.lower === aggregate2.lower).to.be.true;
-    expect(aggregate0.upper === aggregate2.upper).to.be.true;
-
-    expect(aggregate0.lower !== aggregate1.lower).to.be.true;
-    expect(aggregate0.upper !== aggregate1.upper).to.be.true;
   });
 
   it("should submit proposals large enough to exceed uint256 accumulators", async () => {
@@ -346,7 +375,7 @@ describe("Predictions Contract Test @hardhat", function () {
     const tx1 = await predictions.submitProposal(
       10000000000,
       500000000000,
-      "0xA604B9A42DF9CA00000"
+      "0x4B9A42DF9CA00000"
     );
     const tx2 = await predictions.advance();
     await web3.eth.hardhat.increaseTime(3600);
@@ -382,7 +411,9 @@ describe("Predictions Contract Test @hardhat", function () {
     await predictions.advance();
 
     const balance2 = await aloe.balanceOf(multisig);
-    const tx4 = await predictions.claimReward(tx2.logs[0].args.key, [aloe.address]);
+    const tx4 = await predictions.claimReward(tx2.logs[0].args.key, [
+      aloe.address,
+    ]);
     const balance3 = await aloe.balanceOf(multisig);
 
     expect(balance1.sub(balance0).toString(10)).to.equal("500000000000000000");

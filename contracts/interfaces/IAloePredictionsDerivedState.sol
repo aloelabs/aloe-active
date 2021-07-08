@@ -5,20 +5,39 @@ import "../structs/Bounds.sol";
 
 interface IAloePredictionsDerivedState {
     /**
-     * @notice The most recent crowdsourced prediction
-     * @return (prediction bounds, whether bounds prices are inverted)
+     * @notice Statistics for the most recent crowdsourced probability density function, evaluated about current price
+     * @return areInverted Whether the reported values are for inverted prices
+     * @return mean Result of `computeMean()`
+     * @return sigmaL The sqrt of the lower semivariance
+     * @return sigmaU The sqrt of the upper semivariance
      */
-    function current() external view returns (Bounds memory, bool);
+    function current()
+        external
+        view
+        returns (
+            bool areInverted,
+            uint176 mean,
+            uint128 sigmaL,
+            uint128 sigmaU
+        );
 
     /// @notice The earliest time at which the epoch can end
     function epochExpectedEndTime() external view returns (uint32);
 
     /**
-     * @notice Aggregates proposals in the current `epoch`. Only the top `NUM_PROPOSALS_TO_AGGREGATE`, ordered by
-     * stake, will be considered (though others can still receive rewards).
-     * @return bounds The crowdsourced price range that may characterize trading activity over the next hour
+     * @notice Aggregates proposals in the previous `epoch`. Only the top `NUM_PROPOSALS_TO_AGGREGATE`, ordered by
+     * stake, will be considered.
+     * @return mean The mean of the crowdsourced probability density function (1st Raw Moment)
      */
-    function aggregate() external view returns (Bounds memory bounds);
+    function computeMean() external view returns (uint176 mean);
+
+    /**
+     * @notice Aggregates proposals in the previous `epoch`. Only the top `NUM_PROPOSALS_TO_AGGREGATE`, ordered by
+     * stake, will be considered.
+     * @return lower The lower semivariance of the crowdsourced probability density function (2nd Central Moment, Lower)
+     * @return upper The upper semivariance of the crowdsourced probability density function (2nd Central Moment, Upper)
+     */
+    function computeSemivariancesAbout(uint176 center) external view returns (uint256 lower, uint256 upper);
 
     /**
      * @notice Fetches Uniswap prices over 10 discrete intervals in the past hour. Computes mean and standard

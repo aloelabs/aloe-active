@@ -11,8 +11,8 @@ struct Accumulators {
     // For the remaining properties, read comments as if `stake`, `lower`, and `upper` are NumPy arrays.
     // Each index represents a proposal, e.g. proposal 0 would be `(stake[0], lower[0], upper[0])`
 
-    // `(stake * (lower + upper) / 2).sum()`
-    uint256 stake1stMomentRaw;
+    // `(stake * (upper - lower)).sum()`
+    uint256 stake0thMomentRaw;
     // `lower.sum()`
     uint256 sumOfLowerBounds;
     // `(stake * lower).sum()`

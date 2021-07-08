@@ -22,8 +22,9 @@ contract AloePredictionsState is IAloePredictionsState {
     /// @inheritdoc IAloePredictionsState
     mapping(uint40 => Proposal) public override proposals;
 
-    /// @dev An array containing keys of the highest-stake proposals in the current epoch
-    uint40[NUM_PROPOSALS_TO_AGGREGATE] public highestStakeKeys;
+    /// @dev An array containing keys of the highest-stake proposals. Outer index 0 corresponds to
+    /// most recent even-numbered epoch; outer index 1 corresponds to most recent odd-numbered epoch
+    uint40[NUM_PROPOSALS_TO_AGGREGATE][2] public highestStakeKeys;
 
     /// @inheritdoc IAloePredictionsState
     uint40 public override nextProposalKey = 0;
@@ -43,19 +44,20 @@ contract AloePredictionsState is IAloePredictionsState {
     /// @dev Should run after `_submitProposal`, otherwise `accumulators.proposalCount` will be off by 1
     function _organizeProposals(uint40 newestProposalKey, uint80 newestProposalStake) internal {
         uint40 insertionIdx = summaries[epoch].accumulators.proposalCount - 1;
+        uint24 parity = epoch % 2;
 
         if (insertionIdx < NUM_PROPOSALS_TO_AGGREGATE) {
-            highestStakeKeys[insertionIdx] = newestProposalKey;
+            highestStakeKeys[parity][insertionIdx] = newestProposalKey;
             return;
         }
 
         // Start off by assuming the first key in the array corresponds to min stake
         insertionIdx = 0;
-        uint80 stakeMin = proposals[highestStakeKeys[0]].stake;
+        uint80 stakeMin = proposals[highestStakeKeys[parity][0]].stake;
         uint80 stake;
         // Now iterate through rest of keys and update [insertionIdx, stakeMin] as needed
         for (uint8 i = 1; i < NUM_PROPOSALS_TO_AGGREGATE; i++) {
-            stake = proposals[highestStakeKeys[i]].stake;
+            stake = proposals[highestStakeKeys[parity][i]].stake;
             if (stake < stakeMin) {
                 insertionIdx = i;
                 stakeMin = stake;
@@ -64,7 +66,7 @@ contract AloePredictionsState is IAloePredictionsState {
 
         // `>=` (instead of `>`) prefers newer proposals to old ones. This is what we want,
         // since newer proposals will have more market data on which to base bounds.
-        if (newestProposalStake >= stakeMin) highestStakeKeys[insertionIdx] = newestProposalKey;
+        if (newestProposalStake >= stakeMin) highestStakeKeys[parity][insertionIdx] = newestProposalKey;
     }
 
     function _submitProposal(
@@ -110,7 +112,7 @@ contract AloePredictionsState is IAloePredictionsState {
             Accumulators storage accumulators = summaries[epoch].accumulators;
 
             accumulators.stakeTotal += stake;
-            accumulators.stake1stMomentRaw += uint256(stake) * ((uint256(lower) + uint256(upper)) >> 1);
+            accumulators.stake0thMomentRaw += uint256(stake) * uint256(upper - lower);
             accumulators.sumOfLowerBounds += lower;
             accumulators.sumOfUpperBounds += upper;
             accumulators.sumOfLowerBoundsWeighted += uint256(stake) * uint256(lower);
@@ -133,7 +135,7 @@ contract AloePredictionsState is IAloePredictionsState {
             Accumulators storage accumulators = summaries[epoch].accumulators;
 
             accumulators.stakeTotal -= stake;
-            accumulators.stake1stMomentRaw -= uint256(stake) * ((uint256(lower) + uint256(upper)) >> 1);
+            accumulators.stake0thMomentRaw -= uint256(stake) * uint256(upper - lower);
             accumulators.sumOfLowerBounds -= lower;
             accumulators.sumOfUpperBounds -= upper;
             accumulators.sumOfLowerBoundsWeighted -= uint256(stake) * uint256(lower);
@@ -169,20 +171,21 @@ contract AloePredictionsState is IAloePredictionsState {
         // --> Scale this initial term by total stake
         (denom.LS, denom.MS) = denom.muls(stakeTotal);
         // --> Subtract sum of all weighted squared errors
-        UINT512 memory temp = Equations.eqn1(
-            summary.accumulators.sumOfSquaredBoundsWeighted,
-            summary.accumulators.sumOfLowerBoundsWeighted,
-            summary.accumulators.sumOfUpperBoundsWeighted,
-            stakeTotal,
-            summary.groundTruth.lower,
-            summary.groundTruth.upper
-        );
+        UINT512 memory temp =
+            Equations.eqn1(
+                summary.accumulators.sumOfSquaredBoundsWeighted,
+                summary.accumulators.sumOfLowerBoundsWeighted,
+                summary.accumulators.sumOfUpperBoundsWeighted,
+                stakeTotal,
+                summary.groundTruth.lower,
+                summary.groundTruth.upper
+            );
         (denom.LS, denom.MS) = denom.sub(temp.LS, temp.MS);
 
         // Reassign sumOfSquaredBoundsWeighted to denom
         summary.accumulators.sumOfSquaredBoundsWeighted = denom;
 
-        delete summary.accumulators.stake1stMomentRaw;
+        delete summary.accumulators.stake0thMomentRaw;
         delete summary.accumulators.sumOfLowerBounds;
         delete summary.accumulators.sumOfLowerBoundsWeighted;
         delete summary.accumulators.sumOfUpperBounds;

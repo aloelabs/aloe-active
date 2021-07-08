@@ -6,6 +6,5 @@ import "./Bounds.sol";
 
 struct EpochSummary {
     Bounds groundTruth;
-    Bounds aggregate;
     Accumulators accumulators;
 }

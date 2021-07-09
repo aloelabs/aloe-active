@@ -14,10 +14,17 @@ import "./libraries/TickMath.sol";
 import "./interfaces/IAloePredictions.sol";
 import "./interfaces/IAloePredictionsImmutables.sol";
 
-import "./structs/Bounds.sol";
-
 import "./AloePoolERC20.sol";
 import "./UniswapMinter.sol";
+
+uint256 constant TWO_144 = 2**144;
+
+struct PDF {
+    bool isInverted;
+    uint176 mean;
+    uint128 sigmaL;
+    uint128 sigmaU;
+}
 
 contract AloePool is AloePoolERC20, UniswapMinter {
     using SafeERC20 for IERC20;
@@ -28,11 +35,11 @@ contract AloePool is AloePoolERC20, UniswapMinter {
 
     event Snapshot(int24 tick, uint256 totalAmount0, uint256 totalAmount1, uint256 totalSupply);
 
-    /// @dev The maximum number of ticks a lower||upper bound can shift down per rebalance
-    int24 public constant MAX_SHIFT_DOWN = -726; // -7%
+    /// @dev The number of standard deviations to +/- from mean when setting position bounds
+    uint48 public constant K = 5;
 
-    /// @dev The maximum number of ticks a lower||upper bound can shift up per rebalance
-    int24 public constant MAX_SHIFT_UP = 677; // +7%
+    /// @dev The number of seconds to look back when computing current price. Makes manipulation harder
+    uint32 public constant CURRENT_PRICE_WINDOW = 360;
 
     /// @dev The predictions market that provides this pool with next-price distribution data
     IAloePredictions public immutable PREDICTIONS;
@@ -40,20 +47,20 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     /// @dev The most recent predictions market epoch during which this pool was rebalanced
     uint24 public epoch;
 
-    /// @dev The tick corresponding to the lower price bound of our mean +/- 2 stddev position
-    int24 public lower2STD;
+    /// @dev The elastic position stretches to accomodate unpredictable price movements
+    Ticks public elastic;
 
-    /// @dev The tick corresponding to the upper price bound of our mean +/- 2 stddev position
-    int24 public upper2STD;
+    /// @dev The cushion position consumes leftover funds after `elastic` is stretched
+    Ticks public cushion;
 
-    /// @dev The tick corresponding to the lower price bound of our just-in-time position
-    int24 public lowerJIT;
+    /// @dev The excess position is made up of funds that didn't fit into `elastic` when rebalancing
+    Ticks public excess;
 
-    /// @dev The tick corresponding to the upper price bound of our just-in-time position
-    int24 public upperJIT;
+    /// @dev The current statistics from prediction market (representing a probability density function)
+    PDF public pdf;
 
-    /// @dev Whether the current just-in-time position was left of the active range when placed
-    bool public didPlaceLeftJIT;
+    /// @dev Whether the pool had excess token0 as of the most recent rebalance
+    bool public didHaveExcessToken0;
 
     /// @dev For reentrancy check
     bool private locked;
@@ -70,8 +77,6 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         UniswapMinter(IUniswapV3Pool(IAloePredictionsImmutables(predictions).UNI_POOL()))
     {
         PREDICTIONS = IAloePredictions(predictions);
-        (Bounds memory bounds, bool areInverted) = IAloePredictions(predictions).current();
-        (lower2STD, upper2STD) = _getNextTicks(bounds, areInverted);
     }
 
     /**
@@ -80,30 +85,74 @@ contract AloePool is AloePoolERC20, UniswapMinter {
      * all its liquidity from Uniswap.
      */
     function getReserves() public view returns (uint256 reserve0, uint256 reserve1) {
-        (uint256 amount2STD0, uint256 amount2STD1) = _collectableAmountsAsOfLastPoke(lower2STD, upper2STD);
-        (uint256 amountJIT0, uint256 amountJIT1) = _collectableAmountsAsOfLastPoke(lowerJIT, upperJIT);
-        reserve0 = TOKEN0.balanceOf(address(this)) + amount2STD0 + amountJIT0;
-        reserve1 = TOKEN1.balanceOf(address(this)) + amount2STD1 + amountJIT1;
+        reserve0 = TOKEN0.balanceOf(address(this));
+        reserve1 = TOKEN1.balanceOf(address(this));
+        uint256 temp0;
+        uint256 temp1;
+        (temp0, temp1) = _collectableAmountsAsOfLastPoke(elastic);
+        reserve0 += temp0;
+        reserve1 += temp1;
+        (temp0, temp1) = _collectableAmountsAsOfLastPoke(cushion);
+        reserve0 += temp0;
+        reserve1 += temp1;
+        (temp0, temp1) = _collectableAmountsAsOfLastPoke(excess);
+        reserve0 += temp0;
+        reserve1 += temp1;
     }
 
-    function getNextTicks() public view returns (int24 lower, int24 upper) {
-        (Bounds memory bounds, bool areInverted) = PREDICTIONS.current();
-        return _getNextTicks(bounds, areInverted);
+    function getNextElasticTicks() public view returns (Ticks memory) {
+        // Define the window over which we want to fetch price
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = CURRENT_PRICE_WINDOW;
+        secondsAgos[1] = 0;
+
+        // Fetch price and account for possible inversion
+        (int56[] memory tickCumulatives, ) = UNI_POOL.observe(secondsAgos);
+        uint176 price =
+            TickMath.getSqrtRatioAtTick(
+                int24((tickCumulatives[1] - tickCumulatives[0]) / int56(uint56(CURRENT_PRICE_WINDOW)))
+            );
+        if (pdf.isInverted) price = type(uint160).max / price;
+        price = uint176(FullMath.mulDiv(price, price, TWO_144));
+
+        return _getNextElasticTicks(price, pdf.mean, pdf.sigmaL, pdf.sigmaU, pdf.isInverted);
     }
 
-    function _getNextTicks(Bounds memory bounds, bool areInverted) private pure returns (int24 lower, int24 upper) {
+    function _getNextElasticTicks(
+        uint176 price,
+        uint176 mean,
+        uint128 sigmaL,
+        uint128 sigmaU,
+        bool areInverted
+    ) private pure returns (Ticks memory ticks) {
+        uint48 n;
+        uint176 widthL;
+        uint176 widthU;
+
+        if (price < mean) {
+            n = uint48((mean - price) / sigmaL);
+            widthL = uint176(sigmaL) * uint176(K + n);
+            widthU = uint176(sigmaU) * uint176(K);
+        } else {
+            n = uint48((price - mean) / sigmaU);
+            widthL = uint176(sigmaL) * uint176(K);
+            widthU = uint176(sigmaU) * uint176(K + n);
+        }
+
+        uint176 l = mean > widthL ? mean - widthL : 1;
+        uint176 u = mean < type(uint176).max - widthU ? mean + widthU : type(uint176).max;
         uint160 sqrtPriceX96;
 
         if (areInverted) {
-            sqrtPriceX96 = uint160(uint256(type(uint128).max) / Math.sqrt(bounds.lower << 80));
-            lower = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
-            sqrtPriceX96 = uint160(uint256(type(uint128).max) / Math.sqrt(bounds.upper << 80));
-            upper = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+            sqrtPriceX96 = uint160(uint256(type(uint128).max) / Math.sqrt(u << 80));
+            ticks.lower = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+            sqrtPriceX96 = uint160(uint256(type(uint128).max) / Math.sqrt(l << 80));
+            ticks.upper = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
         } else {
-            sqrtPriceX96 = uint160(Math.sqrt(bounds.lower << 80) << 32);
-            lower = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
-            sqrtPriceX96 = uint160(Math.sqrt(bounds.upper << 80) << 32);
-            upper = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+            sqrtPriceX96 = uint160(Math.sqrt(l << 80) << 32);
+            ticks.lower = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+            sqrtPriceX96 = uint160(Math.sqrt(u << 80) << 32);
+            ticks.upper = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
         }
     }
 
@@ -138,8 +187,9 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     {
         require(amount0Max != 0 || amount1Max != 0, "Aloe: 0 deposit");
 
-        _uniswapPoke(lower2STD, upper2STD);
-        _uniswapPoke(lowerJIT, upperJIT);
+        _uniswapPoke(elastic);
+        _uniswapPoke(cushion);
+        _uniswapPoke(excess);
 
         (shares, amount0, amount1) = _computeLPShares(amount0Max, amount1Max);
         require(shares != 0, "Aloe: 0 shares");
@@ -221,10 +271,13 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         // Withdraw proportion of liquidity from Uniswap pool
         uint256 temp0;
         uint256 temp1;
-        (temp0, temp1) = _uniswapExitFraction(shares, totalSupply, lower2STD, upper2STD);
+        (temp0, temp1) = _uniswapExitFraction(shares, totalSupply, elastic);
         amount0 += temp0;
         amount1 += temp1;
-        (temp0, temp1) = _uniswapExitFraction(shares, totalSupply, lowerJIT, upperJIT);
+        (temp0, temp1) = _uniswapExitFraction(shares, totalSupply, cushion);
+        amount0 += temp0;
+        amount1 += temp1;
+        (temp0, temp1) = _uniswapExitFraction(shares, totalSupply, excess);
         amount0 += temp0;
         amount1 += temp1;
 
@@ -246,152 +299,238 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     function _uniswapExitFraction(
         uint256 numerator,
         uint256 denominator,
-        int24 tickLower,
-        int24 tickUpper
+        Ticks memory ticks
     ) internal returns (uint256 amount0, uint256 amount1) {
         assert(numerator < denominator);
 
-        (uint128 liquidity, , , , ) = _position(tickLower, tickUpper);
+        (uint128 liquidity, , , , ) = _position(ticks);
         liquidity = uint128(FullMath.mulDiv(liquidity, numerator, denominator));
 
         uint256 earned0;
         uint256 earned1;
-        (amount0, amount1, earned0, earned1) = _uniswapExit(tickLower, tickUpper, liquidity);
+        (amount0, amount1, earned0, earned1) = _uniswapExit(ticks, liquidity);
 
         // Add share of fees
         amount0 += FullMath.mulDiv(earned0, numerator, denominator);
         amount1 += FullMath.mulDiv(earned1, numerator, denominator);
     }
 
-    /**
-     * @notice Updates vault's positions. Can only be called by the strategy.
-     * @dev Two orders are placed - a base order and a limit order. The base
-     * order is placed first with as much liquidity as possible. This order
-     * should use up all of one token, leaving only the other one. This excess
-     * amount is then placed as a single-sided bid or ask order.
-     */
     function rebalance() external lock {
         uint24 _epoch = PREDICTIONS.epoch();
         require(_epoch > epoch, "Aloe: Too early");
+
+        // Update P.D.F from prediction market
+        (pdf.isInverted, pdf.mean, pdf.sigmaL, pdf.sigmaU) = PREDICTIONS.current();
         epoch = _epoch;
 
-        int24 lower2STDOld = lower2STD;
-        int24 upper2STDOld = upper2STD;
+        int24 tickSpacing = TICK_SPACING;
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = UNI_POOL.slot0();
 
-        // Extract target lower & upper ticks from predictions market
-        (int24 lower2STDNew, int24 upper2STDNew) = getNextTicks();
-        lower2STDNew = _constrainTickShift(lower2STDOld, lower2STDNew);
-        upper2STDNew = _constrainTickShift(upper2STDOld, upper2STDNew);
-        (lower2STDNew, upper2STDNew) = _coerceTicksToSpacing(lower2STDNew, upper2STDNew);
+        // Exit all current Uniswap positions
+        {
+            (uint128 liquidityElastic, , , , ) = _position(elastic);
+            (uint128 liquidityCushion, , , , ) = _position(cushion);
+            (uint128 liquidityExcess, , , , ) = _position(excess);
+            _uniswapExit(elastic, liquidityElastic);
+            _uniswapExit(cushion, liquidityCushion);
+            _uniswapExit(excess, liquidityExcess);
+        }
 
-        // Only perform rebalance if lower||upper tick has changed
-        if (lower2STDNew != lower2STDOld || upper2STDNew != upper2STDOld) {
-            (uint160 sqrtPriceX96, int24 tick, , , , , ) = UNI_POOL.slot0();
+        // Emit snapshot to record balances and supply
+        uint256 balance0 = TOKEN0.balanceOf(address(this));
+        uint256 balance1 = TOKEN1.balanceOf(address(this));
+        emit Snapshot(tick, balance0, balance1, totalSupply());
 
-            // Exit all current Uniswap positions
-            {
-                (uint128 liquidity2STD, , , , ) = _position(lower2STDOld, upper2STDOld);
-                (uint128 liquidityJIT, , , , ) = _position(lowerJIT, upperJIT);
-                _uniswapExit(lower2STDOld, upper2STDOld, liquidity2STD);
-                _uniswapExit(lowerJIT, upperJIT, liquidityJIT);
-            }
+        // Place elastic order on Uniswap
+        Ticks memory elasticNew = _coerceTicksToSpacing(getNextElasticTicks());
+        uint128 liquidity = _liquidityForAmounts(elasticNew, sqrtPriceX96, balance0, balance1);
+        _uniswapEnter(elasticNew, liquidity);
+        elastic = elasticNew;
 
-            // Emit snapshot to record balances and supply
-            uint256 balance0 = TOKEN0.balanceOf(address(this));
-            uint256 balance1 = TOKEN1.balanceOf(address(this));
-            emit Snapshot(tick, balance0, balance1, totalSupply());
+        // Place excess order on Uniswap
+        Ticks memory active = _coerceTicksToSpacing(Ticks(tick, tick));
+        if (lastMintedAmount0 * balance1 < lastMintedAmount1 * balance0) {
+            _placeExcessUpper(active, TOKEN0.balanceOf(address(this)), tickSpacing);
+            didHaveExcessToken0 = true;
+        } else {
+            _placeExcessLower(active, TOKEN1.balanceOf(address(this)), tickSpacing);
+            didHaveExcessToken0 = false;
+        }
+    }
 
-            // Place base order on Uniswap
-            uint128 liquidity = _liquidityForAmounts(lower2STDNew, upper2STDNew, sqrtPriceX96, balance0, balance1);
-            _uniswapEnter(lower2STDNew, upper2STDNew, liquidity);
-            (lower2STD, upper2STD) = (lower2STDNew, upper2STDNew);
+    function stretch() external lock {
+        int24 tickSpacing = TICK_SPACING;
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = UNI_POOL.slot0();
 
-            // Place naive JIT order on Uniswap
-            (int24 upperL, int24 lowerR) = _coerceTicksToSpacing(tick, tick);
-            _snipe(upperL, lowerR);
+        // Check if stretching is necessary
+        Ticks memory elasticNew = _coerceTicksToSpacing(getNextElasticTicks());
+        require(elasticNew.lower != elastic.lower || elasticNew.upper != elastic.upper, "Aloe: Already stretched");
+
+        // Exit previous elastic and cushion, and place as much value as possible in new elastic
+        (uint256 elastic0, uint256 elastic1, , , uint256 available0, uint256 available1) =
+            _exit2Enter1(sqrtPriceX96, elastic, cushion, elasticNew);
+        elastic = elasticNew;
+
+        // Place new cushion
+        Ticks memory active = _coerceTicksToSpacing(Ticks(tick, tick));
+        if (lastMintedAmount0 * elastic1 < lastMintedAmount1 * elastic0) {
+            _placeCushionUpper(active, available0, tickSpacing);
+        } else {
+            _placeCushionLower(active, available1, tickSpacing);
         }
     }
 
     function snipe() external lock {
-        int24 _lowerJIT = lowerJIT;
-        int24 _upperJIT = upperJIT;
-        (, int24 tick, , , , , ) = UNI_POOL.slot0();
-
-        // If JIT position is active range, don't touch it
-        if (_lowerJIT < tick && tick < _upperJIT) return;
-
-        // If JIT position is adjacent to active range, don't touch it
-        (int24 upperL, int24 lowerR) = _coerceTicksToSpacing(tick, tick);
-        if (_upperJIT == upperL || _lowerJIT == lowerR) return;
-
-        // Exit current JIT position
-        (uint128 liquidityJIT, , , , ) = _position(_lowerJIT, _upperJIT);
-        _uniswapExit(_lowerJIT, _upperJIT, liquidityJIT);
-
-        // Enter new JIT position (earned fees get reset to 0)
-        _snipe(upperL, lowerR);
-    }
-
-    function takeBounty() external lock {
-        int24 _lowerJIT = lowerJIT;
-        int24 _upperJIT = upperJIT;
-
-        // Poke and check earnable fees
-        UNI_POOL.burn(_lowerJIT, _upperJIT, 0);
-        (, , , uint128 earnable0, uint128 earnable1) = _position(_lowerJIT, _upperJIT);
-
-        if (didPlaceLeftJIT) {
-            require(earnable1 == 0, "Aloe: Retraced");
-            UNI_POOL.collect(msg.sender, _lowerJIT, _upperJIT, earnable0, 0);
-        } else {
-            require(earnable0 == 0, "Aloe: Retraced");
-            UNI_POOL.collect(msg.sender, _lowerJIT, _upperJIT, 0, earnable1);
-        }
-    }
-
-    /// @dev Allocates entire balance of _either_ TOKEN0 or TOKEN1 to as tight a position as possible,
-    /// with one edge on the current active range.
-    function _snipe(int24 upperL, int24 lowerR) private {
         int24 tickSpacing = TICK_SPACING;
-        uint256 balance0 = TOKEN0.balanceOf(address(this));
-        uint256 balance1 = TOKEN1.balanceOf(address(this));
+        (uint160 sqrtPriceX96, int24 tick, , , , uint8 feeProtocol, ) = UNI_POOL.slot0();
 
-        // TODO Won't have to compute both liquidity amounts if _all_ of one token gets used
-        // in main position (as would be the case when fixing one bound and one balance)
-        uint128 liquidityL = _liquidityForAmount1(upperL - tickSpacing, upperL, balance1);
-        uint128 liquidityR = _liquidityForAmount0(lowerR, lowerR + tickSpacing, balance0);
-        if (liquidityL > liquidityR) {
-            _uniswapEnter(upperL - tickSpacing, upperL, liquidityL);
-            (lowerJIT, upperJIT) = (upperL - tickSpacing, upperL);
-            didPlaceLeftJIT = true;
+        (
+            uint256 excess0,
+            uint256 excess1,
+            uint256 maxReward0,
+            uint256 maxReward1,
+            uint256 available0,
+            uint256 available1
+        ) = _exit2Enter1(sqrtPriceX96, excess, cushion, elastic);
+
+        Ticks memory active = _coerceTicksToSpacing(Ticks(tick, tick));
+
+        if (didHaveExcessToken0) {
+            // Reward caller
+            uint128 reward1 = UNI_FEE - UNI_FEE / (feeProtocol >> 4);
+            reward1 = (uint128(excess1) * reward1) / 1e6;
+            assert(reward1 <= maxReward1);
+            if (reward1 != 0) TOKEN1.safeTransfer(msg.sender, reward1);
+
+            // Replace excess and cushion positions
+            if (excess0 > available0) {
+                // We converted so much token0 to token1 that the cushion has to go
+                // on the other side now
+                _placeExcessUpper(active, available0, tickSpacing);
+                _placeCushionLower(active, available1, tickSpacing);
+            } else {
+                // Both excess and cushion still have token0 to eat through
+                _placeExcessUpper(active, excess0, tickSpacing);
+                _placeCushionUpper(active, available0 - excess0, tickSpacing);
+            }
         } else {
-            _uniswapEnter(lowerR, lowerR + tickSpacing, liquidityR);
-            (lowerJIT, upperJIT) = (lowerR, lowerR + tickSpacing);
-            didPlaceLeftJIT = false;
+            // Reward caller
+            uint128 reward0 = UNI_FEE - UNI_FEE / (feeProtocol % 16);
+            reward0 = (uint128(excess0) * reward0) / 1e6;
+            assert(reward0 <= maxReward0);
+            if (reward0 != 0) TOKEN0.safeTransfer(msg.sender, reward0);
+
+            // Replace excess and cushion positions
+            if (excess1 > available1) {
+                // We converted so much token1 to token0 that the cushion has to go
+                // on the other side now
+                _placeExcessLower(active, available1, tickSpacing);
+                _placeCushionUpper(active, available0, tickSpacing);
+            } else {
+                // Both excess and cushion still have token1 to eat through
+                _placeExcessLower(active, excess1, tickSpacing);
+                _placeCushionLower(active, available1 - excess1, tickSpacing);
+            }
         }
     }
 
-    function _constrainTickShift(int24 tickOld, int24 tickNew) private pure returns (int24) {
-        if (tickNew < tickOld + MAX_SHIFT_DOWN) {
-            return tickOld + MAX_SHIFT_DOWN;
-        } else if (tickNew > tickOld + MAX_SHIFT_UP) {
-            return tickOld + MAX_SHIFT_UP;
-        }
-        return tickNew;
-    }
-
-    function _coerceTicksToSpacing(int24 tickLower, int24 tickUpper)
+    /// @dev Exits positions a and b, and moves as much value as possible to position c.
+    /// Position a must have non-zero liquidity.
+    function _exit2Enter1(
+        uint160 sqrtPriceX96,
+        Ticks memory a,
+        Ticks memory b,
+        Ticks memory c
+    )
         private
-        view
-        returns (int24 tickLowerCoerced, int24 tickUpperCoerced)
+        returns (
+            uint256 a0,
+            uint256 a1,
+            uint256 aEarned0,
+            uint256 aEarned1,
+            uint256 available0,
+            uint256 available1
+        )
     {
-        tickLowerCoerced =
-            tickLower -
-            (tickLower < 0 ? TICK_SPACING + (tickLower % TICK_SPACING) : tickLower % TICK_SPACING);
-        tickUpperCoerced =
-            tickUpper +
-            (tickUpper < 0 ? -tickUpper % TICK_SPACING : TICK_SPACING - (tickUpper % TICK_SPACING));
-        assert(tickLowerCoerced <= tickLower);
-        assert(tickUpperCoerced >= tickUpper);
+        // Exit position A
+        (uint128 liquidity, , , , ) = _position(a);
+        require(liquidity != 0, "Aloe: Expected liquidity");
+        (a0, a1, aEarned0, aEarned1) = _uniswapExit(a, liquidity);
+
+        // Exit position B if it exists
+        uint256 b0;
+        uint256 b1;
+        (liquidity, , , , ) = _position(b);
+        if (liquidity != 0) {
+            (b0, b1, , ) = _uniswapExit(b, liquidity);
+        }
+
+        // Add to position c
+        available0 = a0 + b0;
+        available1 = a1 + b1;
+        liquidity = _liquidityForAmounts(c, sqrtPriceX96, available0, available1);
+        _uniswapEnter(c, liquidity);
+
+        unchecked {
+            available0 -= lastMintedAmount0;
+            available1 -= lastMintedAmount1;
+        }
+    }
+
+    function _placeCushionLower(
+        Ticks memory active,
+        uint256 balance1,
+        int24 tickSpacing
+    ) private {
+        Ticks memory _cushion;
+        (_cushion.lower, _cushion.upper) = (elastic.lower, active.lower);
+        if (_cushion.lower == _cushion.upper) _cushion.lower -= tickSpacing;
+        _uniswapEnter(_cushion, _liquidityForAmount1(_cushion, balance1));
+        cushion = _cushion;
+    }
+
+    function _placeCushionUpper(
+        Ticks memory active,
+        uint256 balance0,
+        int24 tickSpacing
+    ) private {
+        Ticks memory _cushion;
+        (_cushion.lower, _cushion.upper) = (active.upper, elastic.upper);
+        if (_cushion.lower == _cushion.upper) _cushion.upper += tickSpacing;
+        _uniswapEnter(_cushion, _liquidityForAmount0(_cushion, balance0));
+        cushion = _cushion;
+    }
+
+    function _placeExcessLower(
+        Ticks memory active,
+        uint256 balance1,
+        int24 tickSpacing
+    ) private {
+        Ticks memory _excess;
+        (_excess.lower, _excess.upper) = (active.lower - tickSpacing, active.lower);
+        _uniswapEnter(_excess, _liquidityForAmount1(_excess, balance1));
+        excess = _excess;
+    }
+
+    function _placeExcessUpper(
+        Ticks memory active,
+        uint256 balance0,
+        int24 tickSpacing
+    ) private {
+        Ticks memory _excess;
+        (_excess.lower, _excess.upper) = (active.upper, active.upper + tickSpacing);
+        _uniswapEnter(_excess, _liquidityForAmount0(_excess, balance0));
+        excess = _excess;
+    }
+
+    function _coerceTicksToSpacing(Ticks memory ticks) private view returns (Ticks memory ticksCoerced) {
+        ticksCoerced.lower =
+            ticks.lower -
+            (ticks.lower < 0 ? TICK_SPACING + (ticks.lower % TICK_SPACING) : ticks.lower % TICK_SPACING);
+        ticksCoerced.upper =
+            ticks.upper +
+            (ticks.upper < 0 ? -ticks.upper % TICK_SPACING : TICK_SPACING - (ticks.upper % TICK_SPACING));
+        assert(ticksCoerced.lower <= ticks.lower);
+        assert(ticksCoerced.upper >= ticks.upper);
     }
 }

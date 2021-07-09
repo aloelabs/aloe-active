@@ -129,6 +129,7 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
 
     /// @inheritdoc IAloePredictionsActions
     function advance() external override lock {
+        require(summaries[epoch].accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
         require(uint32(block.timestamp) > epochExpectedEndTime(), "Aloe: Too early");
         epochStartTime = uint32(block.timestamp);
 
@@ -238,7 +239,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     /// @inheritdoc IAloePredictionsDerivedState
     function computeMean() public view override returns (uint176 mean) {
         Accumulators memory accumulators = summaries[epoch - 1].accumulators;
-        require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
 
         uint256 denominator = accumulators.stake0thMomentRaw;
         // It's more gas efficient to read from memory copy
@@ -260,7 +260,6 @@ contract AloePredictions is AloePredictionsState, IAloePredictions {
     /// @inheritdoc IAloePredictionsDerivedState
     function computeSemivariancesAbout(uint176 center) public view override returns (uint256 lower, uint256 upper) {
         Accumulators memory accumulators = summaries[epoch - 1].accumulators;
-        require(accumulators.stakeTotal != 0, "Aloe: No proposals with stake");
 
         uint256 denominator = 3 * accumulators.stake0thMomentRaw;
         uint256 x;

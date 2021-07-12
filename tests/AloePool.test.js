@@ -48,7 +48,7 @@ describe("Pool Contract Test @hardhat", function () {
   const Q32DENOM = 2 ** 32;
   const UINT256MAX =
     "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-  const ADDRESS_PREDICTIONS = "0x6B50C916d56dD35CE3e0229eA0c2c416091935e7";
+  const ADDRESS_PREDICTIONS = "0x263C5BDFe39c48aDdE8362DC0Ec2BbD770A09c3a";
   const WHALE = "0x4F868C1aa37fCf307ab38D215382e88FCA6275E2";
   const ALOE_HOLDER = "0x29C3059F2F160A3f23D3e30c8dCc81aFEeD8509F";
 
@@ -72,13 +72,6 @@ describe("Pool Contract Test @hardhat", function () {
 
     expect(reserves.reserve0.toString(10)).to.equal("0");
     expect(reserves.reserve1.toString(10)).to.equal("0");
-  });
-
-  it("should get next target bounds", async () => {
-    const ticks = await pool.getNextTicks();
-
-    expect(ticks.lower.toString(10)).to.equal("200411");
-    expect(ticks.upper.toString(10)).to.equal("200467");
   });
 
   // it("should not rebalance without assets", async () => {
@@ -151,6 +144,13 @@ describe("Pool Contract Test @hardhat", function () {
     console.log(`Rebalance gas: ${tx0.receipt.gasUsed}`);
   });
 
+  it("should get next target bounds", async () => {
+    const ticks = await pool.getNextElasticTicks();
+
+    expect(ticks.lower.toString(10)).to.equal("199742");
+    expect(ticks.upper.toString(10)).to.equal("199839");
+  });
+
   it("should adjust target position", async () => {
     await web3.eth.hardhat.impersonate(ALOE_HOLDER);
 
@@ -167,12 +167,13 @@ describe("Pool Contract Test @hardhat", function () {
       (1e18).toString(10),
       { from: ALOE_HOLDER }
     );
-    await predictions.advance({ from: ALOE_HOLDER });
+    await web3.eth.hardhat.increaseTime(3600);
+    await predictions.advance();
 
-    const ticks = await pool.getNextTicks();
+    const ticks = await pool.getNextElasticTicks();
 
-    expect(ticks.lower.toString(10)).to.equal("199927");
-    expect(ticks.upper.toString(10)).to.equal("206127");
+    expect(ticks.lower.toString(10)).to.equal("199742");
+    expect(ticks.upper.toString(10)).to.equal("199839");
   });
 
   it("should rebalance", async () => {
@@ -197,14 +198,6 @@ describe("Pool Contract Test @hardhat", function () {
     );
   });
 
-  it("shouldn't rebalance until new epoch", async () => {
-    const tx0 = pool.rebalance();
-    await expect(tx0).to.eventually.be.rejectedWith(
-      Error,
-      "VM Exception while processing transaction: revert Aloe: Too early"
-    );
-  });
-
   it("should snipe", async () => {
     const tx0 = await pool.snipe();
     expect(tx0.receipt.status).to.be.true;
@@ -215,8 +208,8 @@ describe("Pool Contract Test @hardhat", function () {
     const withdraw = tx0.logs[5];
     expect(withdraw.event).to.equal('Withdraw');
     expect(withdraw.args.shares.toString(10)).to.equal("100000000000000000");
-    expect(withdraw.args.amount0.toString(10)).to.equal("199999998");
-    expect(withdraw.args.amount1.toString(10)).to.equal("99999999999998501");
+    expect(withdraw.args.amount0.toString(10)).to.equal("199999996");
+    expect(withdraw.args.amount1.toString(10)).to.equal("99999999999978213");
     console.log(`Gas used for snipe: ${tx0.receipt.gasUsed}`);
   })
 });

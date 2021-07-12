@@ -123,6 +123,10 @@ describe("Predictions Contract Test @hardhat", function () {
     await expect(predictions.current()).to.eventually.be.rejected;
   });
 
+  it("shouldn't advance without stake", async () => {
+    await expect(predictions.advance()).to.eventually.be.rejected;
+  });
+
   it("should aggregate 1 proposal with stake", async () => {
     const tx0 = await predictions.submitProposal(
       50000 * Q32DENOM,
@@ -248,14 +252,14 @@ describe("Predictions Contract Test @hardhat", function () {
     console.log(`Gas required to advance: ${tx0.receipt.gasUsed}`);
 
     const current = await predictions.current();
-    const mean = current["0"];
-    const sigmaL = current["1"];
-    const sigmaU = current["2"];
-    expect(current["3"]).to.be.false;
+    const mean = current["1"];
+    const sigmaL = current["2"];
+    const sigmaU = current["3"];
+    expect(current["0"]).to.be.false;
 
-    expect(mean.toString(10)).to.equal("154635620839935798917977");
-    expect(sigmaL.toString(10)).to.equal("17212834917217674758700");
-    expect(sigmaU.toString(10)).to.equal("7404376861383213387914");
+    expect(mean.toString(10)).to.equal("146601550370133336129536");
+    expect(sigmaL.toString(10)).to.equal("14657223934668117970578");
+    expect(sigmaU.toString(10)).to.equal("14657223934668117970578");
   });
 
   it("should update proposals", async () => {

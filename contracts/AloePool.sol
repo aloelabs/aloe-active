@@ -394,13 +394,14 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         ) = _exit2Enter1(sqrtPriceX96, excess, cushion, elastic);
 
         Ticks memory active = _coerceTicksToSpacing(Ticks(tick, tick));
+        uint128 reward = UNI_FEE;
 
         if (didHaveExcessToken0) {
             // Reward caller
-            uint128 reward1 = UNI_FEE - UNI_FEE / (feeProtocol >> 4);
-            reward1 = (uint128(excess1) * reward1) / 1e6;
-            assert(reward1 <= maxReward1);
-            if (reward1 != 0) TOKEN1.safeTransfer(msg.sender, reward1);
+            if (feeProtocol >> 4 != 0) reward -= UNI_FEE / (feeProtocol >> 4);
+            reward = (uint128(excess1) * reward) / 1e6;
+            assert(reward <= maxReward1);
+            if (reward != 0) TOKEN1.safeTransfer(msg.sender, reward);
 
             // Replace excess and cushion positions
             if (excess0 > available0) {
@@ -415,10 +416,10 @@ contract AloePool is AloePoolERC20, UniswapMinter {
             }
         } else {
             // Reward caller
-            uint128 reward0 = UNI_FEE - UNI_FEE / (feeProtocol % 16);
-            reward0 = (uint128(excess0) * reward0) / 1e6;
-            assert(reward0 <= maxReward0);
-            if (reward0 != 0) TOKEN0.safeTransfer(msg.sender, reward0);
+            if (feeProtocol % 16 != 0) reward -= UNI_FEE / (feeProtocol % 16);
+            reward = (uint128(excess0) * reward) / 1e6;
+            assert(reward <= maxReward0);
+            if (reward != 0) TOKEN0.safeTransfer(msg.sender, reward);
 
             // Replace excess and cushion positions
             if (excess1 > available1) {
@@ -472,8 +473,8 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         _uniswapEnter(c, liquidity);
 
         unchecked {
-            available0 -= lastMintedAmount0;
-            available1 -= lastMintedAmount1;
+            available0 = available0 > lastMintedAmount0 ? available0 - lastMintedAmount0 : 0;
+            available1 = available1 > lastMintedAmount1 ? available1 - lastMintedAmount1 : 0;
         }
     }
 

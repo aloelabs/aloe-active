@@ -36,7 +36,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     event Snapshot(int24 tick, uint256 totalAmount0, uint256 totalAmount1, uint256 totalSupply);
 
     /// @dev The number of standard deviations to +/- from mean when setting position bounds
-    uint48 public constant K = 5;
+    uint48 public K = 5;
 
     /// @dev The number of seconds to look back when computing current price. Makes manipulation harder
     uint32 public constant CURRENT_PRICE_WINDOW = 360;
@@ -64,6 +64,8 @@ contract AloePool is AloePoolERC20, UniswapMinter {
 
     /// @dev For reentrancy check
     bool private locked;
+
+    bool public allowRebalances = true;
 
     modifier lock() {
         require(!locked, "Aloe: Locked");
@@ -124,7 +126,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         uint128 sigmaL,
         uint128 sigmaU,
         bool areInverted
-    ) private pure returns (Ticks memory ticks) {
+    ) private view returns (Ticks memory ticks) {
         uint48 n;
         uint176 widthL;
         uint176 widthU;
@@ -316,6 +318,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     }
 
     function rebalance() external lock {
+        require(allowRebalances, "Disabled");
         uint24 _epoch = PREDICTIONS.epoch();
         require(_epoch > epoch, "Aloe: Too early");
 
@@ -344,6 +347,8 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         // Place elastic order on Uniswap
         Ticks memory elasticNew = _coerceTicksToSpacing(getNextElasticTicks());
         uint128 liquidity = _liquidityForAmounts(elasticNew, sqrtPriceX96, balance0, balance1);
+        delete lastMintedAmount0;
+        delete lastMintedAmount1;
         _uniswapEnter(elasticNew, liquidity);
         elastic = elasticNew;
 
@@ -358,7 +363,13 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         }
     }
 
+    function shouldStretch() external view returns (bool) {
+        Ticks memory elasticNew = _coerceTicksToSpacing(getNextElasticTicks());
+        return elasticNew.lower != elastic.lower || elasticNew.upper != elastic.upper;
+    }
+
     function stretch() external lock {
+        require(allowRebalances, "Disabled");
         int24 tickSpacing = TICK_SPACING;
         (uint160 sqrtPriceX96, int24 tick, , , , , ) = UNI_POOL.slot0();
 
@@ -381,6 +392,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
     }
 
     function snipe() external lock {
+        require(allowRebalances, "Disabled");
         int24 tickSpacing = TICK_SPACING;
         (uint160 sqrtPriceX96, int24 tick, , , , uint8 feeProtocol, ) = UNI_POOL.slot0();
 
@@ -404,7 +416,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
             if (reward != 0) TOKEN1.safeTransfer(msg.sender, reward);
 
             // Replace excess and cushion positions
-            if (excess0 > available0) {
+            if (excess0 >= available0) {
                 // We converted so much token0 to token1 that the cushion has to go
                 // on the other side now
                 _placeExcessUpper(active, available0, tickSpacing);
@@ -422,7 +434,7 @@ contract AloePool is AloePoolERC20, UniswapMinter {
             if (reward != 0) TOKEN0.safeTransfer(msg.sender, reward);
 
             // Replace excess and cushion positions
-            if (excess1 > available1) {
+            if (excess1 >= available1) {
                 // We converted so much token1 to token0 that the cushion has to go
                 // on the other side now
                 _placeExcessLower(active, available1, tickSpacing);
@@ -470,6 +482,8 @@ contract AloePool is AloePoolERC20, UniswapMinter {
         available0 = a0 + b0;
         available1 = a1 + b1;
         liquidity = _liquidityForAmounts(c, sqrtPriceX96, available0, available1);
+        delete lastMintedAmount0;
+        delete lastMintedAmount1;
         _uniswapEnter(c, liquidity);
 
         unchecked {

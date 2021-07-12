@@ -61,7 +61,7 @@ describe("Pool Contract Test @hardhat", function () {
     );
 
     pool = await AloePool.new(ADDRESS_PREDICTIONS, multisig, {
-      from: mainDeployer.address,
+      from: mainDeployer.address
     });
     token0 = await ERC20.at(await pool.TOKEN0());
     token1 = await ERC20.at(await pool.TOKEN1());
@@ -139,7 +139,7 @@ describe("Pool Contract Test @hardhat", function () {
     expect(deposit.args.amount1.toString(10)).to.equal("50000000000000000");
   });
 
-  it("should rebalance single-sided", async () => {
+  it("should rebalance", async () => {
     const tx0 = await pool.rebalance();
     console.log(`Rebalance gas: ${tx0.receipt.gasUsed}`);
   });

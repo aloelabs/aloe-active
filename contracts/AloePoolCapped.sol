@@ -10,10 +10,15 @@ contract AloePoolCapped is AloePool {
     using SafeERC20 for IERC20;
 
     address public immutable MULTISIG;
-    uint256 public maxTotalSupply;
+    uint256 public maxTotalSupply = 100000000000000000000;
 
     constructor(address predictions, address multisig) AloePool(predictions) {
         MULTISIG = multisig;
+    }
+
+    modifier restricted() {
+        require(msg.sender == MULTISIG, "Not authorized");
+        _;
     }
 
     function deposit(
@@ -42,8 +47,7 @@ contract AloePoolCapped is AloePool {
         IERC20 token,
         uint256 amount,
         address to
-    ) external {
-        require(msg.sender == MULTISIG, "Not authorized");
+    ) external restricted {
         require(token != TOKEN0 && token != TOKEN1, "Not sweepable");
         token.safeTransfer(to, amount);
     }
@@ -54,8 +58,15 @@ contract AloePoolCapped is AloePool {
      * supply rather than amounts of TOKEN0 and TOKEN1 as those amounts
      * fluctuate naturally over time.
      */
-    function setMaxTotalSupply(uint256 _maxTotalSupply) external {
-        require(msg.sender == MULTISIG, "Not authorized");
+    function setMaxTotalSupply(uint256 _maxTotalSupply) external restricted {
         maxTotalSupply = _maxTotalSupply;
+    }
+
+    function toggleRebalances() external restricted {
+        allowRebalances = !allowRebalances;
+    }
+
+    function setK(uint48 _K) external restricted {
+        K = _K;
     }
 }

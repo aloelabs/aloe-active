@@ -85,5 +85,23 @@ async function createUSDCETHPool(predictionsMarketAddress) {
   console.log(`\tparams: ${predictionsMarketAddress} ${MULTISIG}`);
 }
 
+async function deployPredictionsFactory(aloeAddress) {
+  const mainDeployer = web3.eth.accounts.privateKeyToAccount(
+    process.env.OTHER_DEPLOYER
+  );
+  const factory = await Factory.new(
+    aloeAddress,
+    ADDRESS_UNI_FACTORY,
+    MULTISIG,
+    { from: mainDeployer.address }
+  );
+  console.log(`FACTORY deployed to ${factory.address}`);
+  console.log(`\tparams: ${aloeAddress} ${ADDRESS_UNI_FACTORY} ${MULTISIG}`);
+}
+
 // deployProtocol().then((factory) => createUSDCETHMarket(factory.address));
 // createUSDCETHPool();
+
+// deployPredictionsFactory("0xa10Ee8A7bFA188E762a7bc7169512222a621Fab4");
+// createUSDCETHMarket("0xec0c69449dBc79CB3483FC3e3A4285C8A2D3dD45", 500);
+// createUSDCETHPool("0x263C5BDFe39c48aDdE8362DC0Ec2BbD770A09c3a");
